@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediaLog</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <i class="ti ti-device-tv"></i>
+      <span>MediaLog</span>
+    </div>
+
+    <nav>
+      <div class="sidebar-label">Biblioteca</div>
+      <div class="nav-item active" onclick="setSection('all')" id="nav-all">
+        <i class="ti ti-layout-grid"></i> Todo
+        <span class="badge" id="badge-all">0</span>
+      </div>
+      <div class="nav-item" onclick="setSection('series')" id="nav-series">
+        <i class="ti ti-device-tv-old"></i> Series
+        <span class="badge" id="badge-series">0</span>
+      </div>
+      <div class="nav-item" onclick="setSection('movie')" id="nav-movie">
+        <i class="ti ti-movie"></i> Películas
+        <span class="badge" id="badge-movie">0</span>
+      </div>
+      <div class="nav-item" onclick="setSection('anime')" id="nav-anime">
+        <i class="ti ti-stars"></i> Anime
+        <span class="badge" id="badge-anime">0</span>
+      </div>
+
+      <div class="sidebar-label" style="margin-top:1.25rem">Estado</div>
+      <div class="nav-item" onclick="setFilter('watching')" id="nav-watching">
+        <i class="ti ti-player-play"></i> Viendo
+        <span class="badge" id="badge-watching">0</span>
+      </div>
+      <div class="nav-item" onclick="setFilter('completed')" id="nav-completed">
+        <i class="ti ti-circle-check"></i> Completadas
+        <span class="badge" id="badge-completed">0</span>
+      </div>
+      <div class="nav-item" onclick="setFilter('pending')" id="nav-pending">
+        <i class="ti ti-clock"></i> Pendiente
+        <span class="badge" id="badge-pending">0</span>
+      </div>
+      <div class="nav-item" onclick="setFilter('paused')" id="nav-paused">
+        <i class="ti ti-player-pause"></i> En pausa
+        <span class="badge" id="badge-paused">0</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-label">Herramientas</div>
+      <div class="nav-item" onclick="exportData()">
+        <i class="ti ti-download"></i> Exportar
+      </div>
+      <div class="nav-item" onclick="document.getElementById('import-input').click()">
+        <i class="ti ti-upload"></i> Importar
+      </div>
+      <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)">
+      <div class="nav-item" onclick="openSettings()">
+        <i class="ti ti-settings"></i> Ajustes
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <h1 id="section-title">Mi biblioteca</h1>
+      <div class="topbar-right">
+        <div class="search-box">
+          <i class="ti ti-search"></i>
+          <input type="text" id="search-input" placeholder="Buscar título..." oninput="onSearch(this.value)">
+        </div>
+        <select id="sort-select" onchange="render()" style="font-size:13px; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); cursor:pointer;">
+          <option value="recent">Recientes</option>
+          <option value="title">A–Z</option>
+          <option value="rating">Puntuación</option>
+          <option value="progress">Progreso</option>
+        </select>
+        <button class="btn-add" onclick="openModal()">
+          <i class="ti ti-plus"></i> Añadir
+        </button>
+      </div>
+    </div>
+
+    <div class="stats-bar" id="stats-bar"></div>
+
+    <div class="content">
+      <div class="grid" id="media-grid"></div>
+      <div class="empty-state" id="empty-state" style="display:none">
+        <i class="ti ti-mood-empty"></i>
+        <p class="empty-title">Nada aquí todavía</p>
+        <p class="empty-sub">Añade tu primera serie, película o anime</p>
+        <button class="btn-add" style="margin-top:1rem" onclick="openModal()"><i class="ti ti-plus"></i> Añadir título</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div id="add-modal" class="overlay" onclick="closeModalBg(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Añadir título</h2>
+      <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+
+    <!-- TMDB Search -->
+    <div class="tmdb-search-wrap" id="tmdb-wrap">
+      <div class="field">
+        <label>Buscar en TMDB (autocompletar datos y póster)</label>
+        <div class="tmdb-row">
+          <input id="tmdb-query" type="text" placeholder="Escribe el título para buscar..." onkeydown="if(event.key==='Enter')searchTMDB()">
+          <button class="btn btn-accent" onclick="searchTMDB()" id="tmdb-btn">
+            <i class="ti ti-search"></i> Buscar
+          </button>
+        </div>
+      </div>
+      <div id="tmdb-results" class="tmdb-results"></div>
+    </div>
+
+    <div class="modal-divider"><span>o rellena manualmente</span></div>
+
+    <div class="form-body">
+      <div class="field">
+        <label>Tipo</label>
+        <select id="f-type" onchange="updateModalFields()">
+          <option value="series">Serie</option>
+          <option value="anime">Anime</option>
+          <option value="movie">Película</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Título *</label>
+        <input id="f-title" type="text" placeholder="Nombre del título">
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Año</label>
+          <input id="f-year" type="number" placeholder="2024" min="1900" max="2030">
+        </div>
+        <div class="field">
+          <label>Género</label>
+          <input id="f-genre" type="text" placeholder="Drama, Acción...">
+        </div>
+      </div>
+      <div class="field">
+        <label>URL del póster</label>
+        <div class="poster-row">
+          <input id="f-poster" type="url" placeholder="https://... (se rellena al buscar en TMDB)">
+          <div class="poster-preview" id="poster-preview"><i class="ti ti-photo"></i></div>
+        </div>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Estado</label>
+          <select id="f-status">
+            <option value="watching">Viendo</option>
+            <option value="completed">Completada</option>
+            <option value="pending">Pendiente</option>
+            <option value="paused">En pausa</option>
+            <option value="dropped">Abandonada</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Puntuación (0–10)</label>
+          <input id="f-rating" type="number" placeholder="8.5" min="0" max="10" step="0.5">
+        </div>
+      </div>
+      <div id="ep-fields">
+        <div class="row-2">
+          <div class="field">
+            <label>Episodios vistos</label>
+            <input id="f-ep-seen" type="number" placeholder="0" min="0">
+          </div>
+          <div class="field">
+            <label>Total episodios</label>
+            <input id="f-ep-total" type="number" placeholder="12" min="0">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label>Temporada actual</label>
+            <input id="f-season" type="number" placeholder="1" min="1">
+          </div>
+          <div class="field">
+            <label>Total temporadas</label>
+            <input id="f-seasons-total" type="number" placeholder="1" min="1">
+          </div>
+        </div>
+        <div class="field">
+          <label>Próxima temporada / S2</label>
+          <select id="f-s2">
+            <option value="unknown">Desconocido</option>
+            <option value="no">Sin continuación confirmada</option>
+            <option value="leaked">Filtrada / rumor</option>
+            <option value="confirmed">Confirmada oficialmente</option>
+            <option value="airing">Ya en emisión</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Notas personales</label>
+        <textarea id="f-notes" rows="2" placeholder="Comentarios, lo que más te gustó..."></textarea>
+      </div>
+      <input type="hidden" id="f-tmdb-id">
+      <input type="hidden" id="f-backdrop">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-accent" onclick="saveMedia()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div id="detail-modal" class="overlay" onclick="closeDetailBg(event)">
+  <div class="detail-modal">
+    <button class="icon-btn detail-close" onclick="closeDetail()"><i class="ti ti-x"></i></button>
+    <div id="detail-backdrop" class="detail-backdrop"></div>
+    <div class="detail-scroll">
+      <div class="detail-header" id="detail-header"></div>
+      <div class="detail-body" id="detail-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="settings-modal" class="overlay" onclick="closeSettingsBg(event)">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-header">
+      <h2>Ajustes</h2>
+      <button class="icon-btn" onclick="closeSettings()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-body">
+      <div class="field">
+        <label>API Key de TMDB</label>
+        <input id="s-apikey" type="text" placeholder="Tu API key de themoviedb.org">
+        <p class="field-hint">Gratis en <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a> → API → Solicitar clave (v3 auth)</p>
+      </div>
+      <div class="field">
+        <label>Idioma de búsqueda TMDB</label>
+        <select id="s-lang">
+          <option value="es-ES">Español</option>
+          <option value="en-US">Inglés</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSettings()">Cancelar</button>
+      <button class="btn btn-accent" onclick="saveSettings()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

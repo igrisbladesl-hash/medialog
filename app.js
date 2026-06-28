@@ -249,7 +249,23 @@ function addSeasonField(data) {
   document.getElementById('seasons-list').appendChild(div);
 }
 
-function removeSeasonField(idx) { document.getElementById(`season-item-${idx}`)?.remove(); }
+function removeSeasonField(idx) {
+  const items = document.getElementById("seasons-list").querySelectorAll(".season-item");
+  const itemEl = document.getElementById("season-item-" + idx);
+  if (!itemEl) return;
+  const allItems = Array.from(items);
+  const isLast = allItems[allItems.length - 1] === itemEl;
+  if (!isLast) {
+    alert("Solo puedes eliminar la 00faltima temporada.\nNo se pueden borrar temporadas anteriores para no perder el progreso.");
+    return;
+  }
+  const epSeen = parseInt(document.getElementById("s" + idx + "-seen")?.value) || 0;
+  const msg = epSeen > 0
+    ? "\u00bfEliminar esta temporada? Tienes " + epSeen + " episodios registrados y se perder00e1n."
+    : "\u00bfEst00e1s seguro de que quieres eliminar esta temporada?";
+  if (!confirm(msg)) return;
+  itemEl.remove();
+}
 
 function updateMiniPoster(idx, url) {
   const mini = document.getElementById(`s${idx}-mini`);
@@ -377,7 +393,15 @@ async function selectTMDB(data, el) {
   try {
     const res = await fetch(`https://api.themoviedb.org/3/${data.mediaType}/${data.id}?api_key=${settings.apiKey}&language=${settings.lang}`);
     const det = await res.json();
-    if (det.genres?.length) document.getElementById('f-genre').value = det.genres.slice(0,2).map(g=>g.name).join(', ');
+    if (det.genres?.length) {
+      const genreNames = det.genres.map(g => g.name);
+      document.getElementById("f-genre").value = genreNames.slice(0,2).join(", ");
+      const isAnimation = genreNames.some(g => ["Animation","Animación","Anime"].includes(g));
+      if (isAnimation && data.mediaType === "tv") {
+        document.getElementById("f-type").value = "anime";
+        updateModalFields();
+      }
+    }
     if (data.mediaType === 'tv') {
       if (det.status === 'Ended' || det.status === 'Canceled') document.getElementById('f-continuation').value = 'no';
       else if (det.next_episode_to_air) document.getElementById('f-continuation').value = 'airing';
@@ -410,17 +434,18 @@ function openDetail(id) {
   if (!m) return;
   const emoji   = TYPE_EMOJI[m.type];
   const seasons = m.seasons || [];
-  const firstPoster = seasons[0]?.poster || '';
-  document.getElementById('detail-backdrop').style.backgroundImage = firstPoster ? `url(${firstPoster})` : 'none';
+  const activeSeason = seasons[activeSeasonTab[id] ?? 0];
+  const activePoster = activeSeason?.poster || '';
 
+  // Backdrop con el póster de la temporada activa
+  document.getElementById('detail-backdrop').style.backgroundImage = activePoster ? `url(${activePoster})` : 'none';
+
+  // Header: solo info, sin póster (el póster ya sale en el panel de temporada)
   document.getElementById('detail-header').innerHTML = `
-    <div class="detail-poster-wrap">
-      ${firstPoster ? `<img src="${firstPoster}" alt="${m.title}">` : `<div class="detail-poster-placeholder">${emoji}</div>`}
-    </div>
-    <div class="detail-info">
+    <div class="detail-info" style="padding-top:50px">
       <h2>${m.title}</h2>
       <div class="meta">${[TYPE_LABEL[m.type], m.year, m.genre].filter(Boolean).join(' · ')}</div>
-      <div class="card-tags">
+      <div class="card-tags" style="margin-top:6px">
         ${statusTag(m.status)}
         ${contTag(m.continuation)}
         ${m.rating ? `<span class="tag" style="background:var(--warning-bg);color:var(--warning-text)">★ ${m.rating}</span>` : ''}
@@ -478,8 +503,6 @@ function switchSeasonTab(id, idx) {
   const m = mediaList.find(x=>x.id===id);
   if (m?.seasons?.[idx]?.poster) {
     document.getElementById('detail-backdrop').style.backgroundImage = `url(${m.seasons[idx].poster})`;
-    const pw = document.querySelector('.detail-poster-wrap');
-    if (pw) pw.innerHTML = `<img src="${m.seasons[idx].poster}" alt="">`;
   }
 }
 
@@ -561,3 +584,66 @@ document.head.appendChild(style);
 
 // ── INIT ───────────────────────────────────────────────────────────────────
 loadFromSupabase();
+
+// ── MOBILE NAV ─────────────────────────────────────────────────────────────
+function mobileNav(section, el) {
+  document.querySelectorAll('.mobile-nav-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  setSection(section);
+}
+
+// ── RECARGAR TEMPORADAS DESDE TMDB ─────────────────────────────────────────
+async function reloadSeasonsFromTMDB() {
+  const tmdbId   = document.getElementById('f-tmdb-id').value;
+  const tmdbType = document.getElementById('f-tmdb-type').value || 'tv';
+  if (!tmdbId) { alert('Primero busca el título en TMDB para poder recargar las temporadas.'); return; }
+  if (!settings.apiKey) { alert('Añade tu API Key de TMDB en Ajustes.'); return; }
+  if (tmdbType === 'movie') { alert('Las películas no tienen temporadas.'); return; }
+
+  const btn = document.querySelector('[title="Recargar desde TMDB"]');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i>'; }
+
+  try {
+    // Guardar episodios ya vistos antes de recargar
+    const existingSeasons = getSeasonData();
+
+    const res = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${settings.apiKey}&language=${settings.lang}`);
+    const det = await res.json();
+    const nSeasons = det.number_of_seasons || 1;
+
+    const seasonFetches = Array.from({length: nSeasons}, (_,i) =>
+      fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${i+1}?api_key=${settings.apiKey}&language=${settings.lang}`)
+        .then(r=>r.json()).catch(()=>null)
+    );
+    const seasonDetails = await Promise.all(seasonFetches);
+
+    document.getElementById('seasons-list').innerHTML = '';
+    seasonCount = 0;
+
+    seasonDetails.forEach((sd, i) => {
+      // Mantener progreso ya guardado si existía esa temporada
+      const prev = existingSeasons[i];
+      addSeasonField({
+        number:     i + 1,
+        poster:     sd?.poster_path ? `${TMDB_IMG}${sd.poster_path}` : (prev?.poster || ''),
+        epSeen:     prev?.epSeen  || 0,
+        epTotal:    sd?.episodes?.length || prev?.epTotal || 0,
+        note:       prev?.note    || '',
+        rating:     prev?.rating  || '',
+        tmdbSeason: i + 1,
+      });
+    });
+
+    // Auto-detectar anime
+    if (det.genres?.length) {
+      const genreNames = det.genres.map(g => g.name);
+      const isAnim = genreNames.some(g => ['Animation','Animación','Anime'].includes(g));
+      if (isAnim) { document.getElementById('f-type').value = 'anime'; updateModalFields(); }
+    }
+
+  } catch(e) {
+    alert('Error al conectar con TMDB. Revisa tu API key.');
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> TMDB'; }
+}

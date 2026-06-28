@@ -169,16 +169,14 @@ a { color: var(--accent-text); }
 .icon-btn-sm:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
 
 /* DETAIL MODAL */
-.detail-modal { background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); width: 100%; max-width: 560px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; position: relative; }
-.detail-close { position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(0,0,0,0.5); border-color: transparent; }
-.detail-backdrop { height: 160px; background: var(--surface-3); background-size: cover; background-position: center top; flex-shrink: 0; position: relative; }
-.detail-backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, var(--surface-2) 0%, transparent 60%); }
-.detail-scroll { overflow-y: auto; flex: 1; }
-.detail-header { display: flex; gap: 16px; padding: 0 1.25rem; margin-top: -60px; position: relative; z-index: 2; margin-bottom: 1rem; }
-.detail-poster-wrap { width: 90px; min-width: 90px; height: 135px; border-radius: 10px; overflow: hidden; border: 2px solid var(--border-strong); background: var(--surface-3); flex-shrink: 0; }
-.detail-poster-wrap img { width: 100%; height: 100%; object-fit: cover; }
-.detail-poster-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 32px; }
-.detail-info { flex: 1; padding-top: 60px; }
+.detail-modal { background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; position: relative; }
+.detail-close { position: absolute; top: 12px; right: 12px; z-index: 10; background: rgba(0,0,0,0.6); border-color: transparent; }
+/* Backdrop: franja decorativa difuminada, SIN mostrar el póster completo */
+.detail-backdrop { height: 100px; background: var(--surface-3); background-size: cover; background-position: center 20%; flex-shrink: 0; position: relative; filter: blur(0); }
+.detail-backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, var(--surface-2) 0%, rgba(13,15,20,0.7) 100%); }
+.detail-scroll { flex: 1; }
+.detail-header { display: flex; gap: 14px; padding: 0.75rem 1.25rem 0; position: relative; z-index: 2; margin-bottom: 0.5rem; }
+.detail-info { flex: 1; }
 .detail-info h2 { font-size: 18px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
 .detail-info .meta { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
 .detail-body { padding: 0 1.25rem 1.25rem; }
@@ -191,9 +189,9 @@ a { color: var(--accent-text); }
 .season-panel { display: none; }
 .season-panel.active { display: block; }
 .season-detail { display: flex; gap: 14px; margin-bottom: 1rem; }
-.season-detail-poster { width: 70px; min-width: 70px; height: 105px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-strong); background: var(--surface-3); flex-shrink: 0; }
-.season-detail-poster img { width: 100%; height: 100%; object-fit: cover; }
-.season-detail-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.season-detail-poster { width: 90px; min-width: 90px; height: 135px; border-radius: 10px; overflow: hidden; border: 2px solid var(--border-strong); background: var(--surface-3); flex-shrink: 0; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+.season-detail-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.season-detail-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 28px; }
 .season-detail-info { flex: 1; }
 .ep-control { display: flex; align-items: center; gap: 10px; background: var(--surface-3); border-radius: var(--radius); padding: 10px 14px; margin: 0.5rem 0; }
 .ep-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface-2); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; color: var(--text-primary); transition: background 0.12s; }
@@ -222,6 +220,9 @@ a { color: var(--accent-text); }
 @media (max-width: 700px) {
 
   body { overflow: hidden; }
+  /* Permitir scroll dentro de modales */
+  .overlay { overflow: hidden; }
+  .overlay.open { overflow-y: auto; }
 
   /* App layout: columna, navbar abajo */
   .app { flex-direction: column; height: 100dvh; }
@@ -300,10 +301,12 @@ a { color: var(--accent-text); }
     max-height: 92dvh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border-bottom: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .modal-header { padding: 1rem 1rem 0; }
   .form-body { padding: 0 1rem; }
-  .modal-actions { padding: 0.75rem 1rem 1rem; }
+  .modal-actions { padding: 0.75rem 1rem calc(1rem + env(safe-area-inset-bottom)); }
 
   /* Detail modal a pantalla completa */
   .detail-modal {
@@ -312,11 +315,14 @@ a { color: var(--accent-text); }
     max-height: 92dvh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border-bottom: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .detail-backdrop { height: 130px; }
-  .detail-header { padding: 0 1rem; }
-  .detail-body { padding: 0 1rem 1rem; }
+  .detail-backdrop { height: 80px; }
+  .detail-header { padding: 0.5rem 1rem 0; }
+  .detail-body { padding: 0 1rem calc(1rem + env(safe-area-inset-bottom)); }
   .detail-info h2 { font-size: 16px; }
+  .season-detail-poster { width: 75px; min-width: 75px; height: 112px; }
 
   /* Botones más grandes para táctil */
   .ep-btn { width: 40px; height: 40px; font-size: 22px; }
@@ -340,19 +346,3 @@ a { color: var(--accent-text); }
 /* Ocultar navbar móvil en desktop */
 .mobile-nav { display: none; }
 
-/* ── FIX: backdrop no cortado + header sin póster ── */
-.detail-backdrop {
-  background-size: cover;
-  background-position: center center;
-}
-.detail-backdrop::after {
-  background: linear-gradient(to top, var(--surface-2) 0%, rgba(13,15,20,0.5) 100%);
-}
-.detail-header {
-  margin-top: 0;
-  padding-top: 0;
-}
-.detail-info {
-  padding-top: 0 !important;
-  width: 100%;
-}

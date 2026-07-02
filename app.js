@@ -662,3 +662,14 @@ async function reloadSeasonsFromTMDB() {
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> TMDB'; }
 }
+
+// ── BORRAR TODA LA BIBLIOTECA ─────────────────────────────────────────────
+async function deleteAll() {
+  if (mediaList.length === 0) { alert('Tu biblioteca ya está vacía.'); return; }
+  if (!confirm(`¿Borrar los ${mediaList.length} títulos de tu biblioteca?\nEsta acción no se puede deshacer.`)) return;
+  const all = [...mediaList];
+  mediaList = [];
+  saveData();
+  render();
+  for (const item of all) await deleteFromSupabase(item.id);
+}

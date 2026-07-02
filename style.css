@@ -345,3 +345,8 @@ a { color: var(--accent-text); }
 
 /* Ocultar navbar móvil en desktop */
 .mobile-nav { display: none; }
+
+
+/* Checkbox anime movie */
+.checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
+.checkbox-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--anime-color); cursor: pointer; }

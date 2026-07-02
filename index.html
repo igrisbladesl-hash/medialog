@@ -35,7 +35,6 @@
       <div class="nav-item" onclick="document.getElementById('import-input').click()"><i class="ti ti-upload"></i> Importar</div>
       <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)">
       <div class="nav-item" onclick="openSettings()"><i class="ti ti-settings"></i> Ajustes</div>
-      <div class="nav-item" style="color:var(--danger-text)" onclick="deleteAll()"><i class="ti ti-trash" style="color:var(--danger)"></i> Borrar todo</div>
     </div>
   </aside>
 
@@ -193,9 +192,12 @@
         </select>
       </div>
     </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeSettings()">Cancelar</button>
-      <button class="btn btn-accent" onclick="saveSettings()">Guardar</button>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn btn-danger" onclick="deleteAll()"><i class="ti ti-trash"></i> Borrar toda la biblioteca</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="closeSettings()">Cancelar</button>
+        <button class="btn btn-accent" onclick="saveSettings()">Guardar</button>
+      </div>
     </div>
   </div>
 </div>

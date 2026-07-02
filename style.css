@@ -345,4 +345,3 @@ a { color: var(--accent-text); }
 
 /* Ocultar navbar móvil en desktop */
 .mobile-nav { display: none; }
-

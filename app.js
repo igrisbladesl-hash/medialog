@@ -36,7 +36,17 @@ async function loadFromSupabase() {
     if (!res.ok) throw new Error('fetch failed');
     const rows = await res.json();
     if (rows.length > 0) {
-      mediaList = rows.map(r => ({ ...r.data, id: r.id }));
+      mediaList = rows.map(r => {
+        const m = { ...r.data, id: r.id };
+        // Recalcular rating como media de temporadas al cargar
+        if (m.type !== 'movie' && m.seasons?.length > 0) {
+          const ratings = m.seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
+          if (ratings.length > 0) {
+            m.rating = Math.round(ratings.reduce((a,b) => a+b, 0) / ratings.length * 10) / 10;
+          }
+        }
+        return m;
+      });
       localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
     }
     setSyncStatus('ok');

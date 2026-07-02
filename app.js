@@ -110,7 +110,8 @@ function onSearch(q) { currentSearch = q; render(); }
 // ── FILTERING ──────────────────────────────────────────────────────────────
 function getFiltered() {
   let list = [...mediaList];
-  if (currentSection !== 'all') list = list.filter(m => m.type === currentSection);
+  if (currentSection === 'anime') list = list.filter(m => m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie));
+  else if (currentSection !== 'all') list = list.filter(m => m.type === currentSection);
   if (currentFilter)            list = list.filter(m => m.status === currentFilter);
   if (currentSearch) {
     const q = currentSearch.toLowerCase();
@@ -158,6 +159,8 @@ function renderCard(m) {
        </div>`;
 
   const cornerHTML = m.type === 'anime'
+    ? `<span class="card-corner" style="background:var(--anime-color);color:white">Anime</span>`
+    : m.type === 'movie' && m.isAnimeMovie
     ? `<span class="card-corner" style="background:var(--anime-color);color:white">Anime</span>`
     : m.type === 'movie'
     ? `<span class="card-corner" style="background:var(--warning);color:#111">Película</span>`
@@ -314,6 +317,7 @@ function openModal(id) {
   document.getElementById('tmdb-query').value     = '';
   document.getElementById('tmdb-results').innerHTML = '';
   document.getElementById('f-movie-poster').value = m ? (m.poster||'') : '';
+  document.getElementById('f-is-anime-movie').checked = m ? (m.isAnimeMovie||false) : false;
   updateMiniPoster('movie', m?.poster || '');
   updateModalFields();
   if (m?.seasons?.length > 0) m.seasons.forEach(s => addSeasonField(s));
@@ -347,6 +351,7 @@ async function saveMedia() {
     tmdbId:       document.getElementById('f-tmdb-id').value,
     tmdbType:     document.getElementById('f-tmdb-type').value,
     poster:       type==='movie' ? (document.getElementById('f-movie-poster').value.trim()||'') : '',
+    isAnimeMovie: type==='movie' ? document.getElementById('f-is-anime-movie').checked : false,
     seasons:      type==='movie' ? [] : getSeasonData(),
     updatedAt:    Date.now(),
   };
@@ -415,6 +420,9 @@ async function selectTMDB(data, el) {
       if (isAnimation && data.mediaType === "tv") {
         document.getElementById("f-type").value = "anime";
         updateModalFields();
+      }
+      if (isAnimation && data.mediaType === "movie") {
+        document.getElementById("f-is-anime-movie").checked = true;
       }
     }
     if (data.mediaType === 'tv') {

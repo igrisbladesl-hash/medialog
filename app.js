@@ -268,10 +268,16 @@ function removeSeasonField(idx) {
 }
 
 function updateMiniPoster(idx, url) {
-  const mini = document.getElementById(`s${idx}-mini`);
+  const id = idx === "movie" ? "smovie-mini" : `s${idx}-mini`;
+  const mini = document.getElementById(id);
   if (!mini) return;
-  mini.innerHTML = url ? `<img src="${url}" alt="" onerror="this.parentElement.innerHTML='<i class=\\'ti ti-photo\\'></i>'">` : '<i class="ti ti-photo"></i>';
+  mini.innerHTML = url ? `<img src="${url}" alt="" onerror="this.parentElement.innerHTML='<i class=\\"ti ti-photo\\"></i>'">` : '<i class="ti ti-photo"></i>';
 }
+
+
+
+
+
 
 function getSeasonData() {
   const items = document.getElementById('seasons-list').querySelectorAll('.season-item');
@@ -307,6 +313,8 @@ function openModal(id) {
   document.getElementById('f-tmdb-type').value    = m ? (m.tmdbType||'tv') : 'tv';
   document.getElementById('tmdb-query').value     = '';
   document.getElementById('tmdb-results').innerHTML = '';
+  document.getElementById('f-movie-poster').value = m ? (m.poster||'') : '';
+  updateMiniPoster('movie', m?.poster || '');
   updateModalFields();
   if (m?.seasons?.length > 0) m.seasons.forEach(s => addSeasonField(s));
   else if (!m || m.type !== 'movie') addSeasonField();
@@ -317,6 +325,7 @@ function updateModalFields() {
   const isMovie = document.getElementById('f-type').value === 'movie';
   document.getElementById('seasons-section').style.display = isMovie ? 'none' : 'block';
   document.getElementById('f-continuation-wrap').style.display = isMovie ? 'none' : 'block';
+  document.getElementById('movie-poster-section').style.display = isMovie ? 'block' : 'none';
 }
 
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }
@@ -337,6 +346,7 @@ async function saveMedia() {
     continuation: type==='movie' ? 'no' : document.getElementById('f-continuation').value,
     tmdbId:       document.getElementById('f-tmdb-id').value,
     tmdbType:     document.getElementById('f-tmdb-type').value,
+    poster:       type==='movie' ? (document.getElementById('f-movie-poster').value.trim()||'') : '',
     seasons:      type==='movie' ? [] : getSeasonData(),
     updatedAt:    Date.now(),
   };
@@ -389,6 +399,11 @@ async function selectTMDB(data, el) {
   document.getElementById('f-year').value    = data.year;
   document.getElementById('f-tmdb-id').value = data.id;
   document.getElementById('f-tmdb-type').value = data.mediaType;
+  // For movies, set poster immediately from search result
+  if (data.mediaType === 'movie' && data.poster) {
+    document.getElementById('f-movie-poster').value = data.poster;
+    updateMiniPoster('movie', data.poster);
+  }
   if (!settings.apiKey) return;
   try {
     const res = await fetch(`https://api.themoviedb.org/3/${data.mediaType}/${data.id}?api_key=${settings.apiKey}&language=${settings.lang}`);

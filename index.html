@@ -139,6 +139,17 @@
         <input id="f-rating" type="number" placeholder="8.5" min="0" max="10" step="0.5">
       </div>
 
+      <!-- PÓSTER PELÍCULA -->
+      <div id="movie-poster-section" style="display:none">
+        <div class="field">
+          <label>URL del póster</label>
+          <div class="season-poster-row">
+            <input type="url" id="f-movie-poster" placeholder="Se rellena automáticamente con TMDB" oninput="updateMiniPoster('movie', this.value)">
+            <div class="poster-mini" id="smovie-mini"><i class="ti ti-photo"></i></div>
+          </div>
+        </div>
+      </div>
+
       <!-- TEMPORADAS -->
       <div id="seasons-section">
         <div class="seasons-header">

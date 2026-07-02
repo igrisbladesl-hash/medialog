@@ -335,6 +335,16 @@ function updateModalFields() {
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }
 function closeModalBg(e) { if (e.target.id==='add-modal') closeModal(); }
 
+async function calcRating(type, manualRating, seasons) {
+  // For movies use manual rating directly
+  if (type === 'movie') return manualRating;
+  // Collect season ratings that have a value
+  const ratings = seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
+  if (ratings.length === 0) return manualRating; // fallback to manual if no season ratings
+  const avg = ratings.reduce((a,b) => a+b, 0) / ratings.length;
+  return Math.round(avg * 10) / 10; // round to 1 decimal
+}
+
 async function saveMedia() {
   const title = document.getElementById('f-title').value.trim();
   if (!title) { alert('El título es obligatorio'); return; }
@@ -346,7 +356,7 @@ async function saveMedia() {
     year:         document.getElementById('f-year').value,
     genre:        document.getElementById('f-genre').value.trim(),
     status:       document.getElementById('f-status').value,
-    rating:       document.getElementById('f-rating').value,
+    rating:       calcRating(type, document.getElementById('f-rating').value, type==='movie' ? [] : getSeasonData()),
     continuation: type==='movie' ? 'no' : document.getElementById('f-continuation').value,
     tmdbId:       document.getElementById('f-tmdb-id').value,
     tmdbType:     document.getElementById('f-tmdb-type').value,

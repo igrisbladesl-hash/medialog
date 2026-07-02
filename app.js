@@ -256,13 +256,13 @@ function removeSeasonField(idx) {
   const allItems = Array.from(items);
   const isLast = allItems[allItems.length - 1] === itemEl;
   if (!isLast) {
-    alert("Solo puedes eliminar la 00faltima temporada.\nNo se pueden borrar temporadas anteriores para no perder el progreso.");
+    alert("Solo puedes eliminar la última temporada.\nNo se pueden borrar temporadas anteriores para no perder el progreso.");
     return;
   }
   const epSeen = parseInt(document.getElementById("s" + idx + "-seen")?.value) || 0;
   const msg = epSeen > 0
-    ? "\u00bfEliminar esta temporada? Tienes " + epSeen + " episodios registrados y se perder00e1n."
-    : "\u00bfEst00e1s seguro de que quieres eliminar esta temporada?";
+    ? "¿Eliminar esta temporada? Tienes " + epSeen + " episodios registrados y se perderán."
+    : "¿Estás seguro de que quieres eliminar esta temporada?";
   if (!confirm(msg)) return;
   itemEl.remove();
 }

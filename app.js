@@ -637,7 +637,8 @@ async function changeEp(id, seasonIdx, delta) {
   const m = mediaList.find(x=>x.id===id);
   if (!m || !m.seasons?.[seasonIdx]) return;
   const s = m.seasons[seasonIdx];
-  s.epSeen = Math.max(0, (parseInt(s.epSeen)||0) + delta);
+  const maxEp = parseInt(s.epTotal) || Infinity;
+  s.epSeen = Math.min(maxEp, Math.max(0, (parseInt(s.epSeen)||0) + delta));
   const allDone = m.seasons.every(s => s.epTotal > 0 && s.epSeen >= s.epTotal);
   if (allDone) m.status = 'completed';
   m.updatedAt = Date.now();

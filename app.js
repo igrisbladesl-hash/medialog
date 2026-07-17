@@ -28,6 +28,16 @@ const CONT_LABEL = { unknown: '', no: 'No continúa', rumor: 'Continuación rumo
 
 // ── SUPABASE SYNC ──────────────────────────────────────────────────────────
 function recalcRating(m) {
+  // Limpiar ratings corruptos ([object Promise], [object Object], etc.)
+  if (m.rating && (String(m.rating).includes('object') || String(m.rating).includes('Promise'))) {
+    m.rating = '';
+  }
+  m.seasons?.forEach(s => {
+    if (s.rating && (String(s.rating).includes('object') || String(s.rating).includes('Promise'))) {
+      s.rating = '';
+    }
+  });
+  // Recalcular como media de temporadas
   if (m.type !== 'movie' && m.seasons?.length > 0) {
     const ratings = m.seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
     if (ratings.length > 0) m.rating = Math.round(ratings.reduce((a,b)=>a+b,0)/ratings.length*10)/10;
@@ -62,7 +72,7 @@ async function loadFromSupabase() {
     // Build map from localStorage
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
     const localMap = {};
-    local.forEach(m => { localMap[m.id] = m; });
+    local.forEach(m => { localMap[m.id] = recalcRating(m); });
 
     // Merge: for each id, keep the more complete version
     const allIds = new Set([...Object.keys(remoteMap), ...Object.keys(localMap)]);
@@ -223,13 +233,17 @@ function renderCard(m) {
          <span>${TYPE_EMOJI[m.type]}</span><span>${m.title.slice(0,18)}</span>
        </div>`;
 
-  const cornerHTML = m.type === 'anime'
-    ? `<span class="card-corner" style="background:var(--anime-color);color:white">Anime</span>`
-    : m.type === 'movie' && m.isAnimeMovie
+  // Badge tipo (esquina superior derecha)
+  const typeBadge = m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie)
     ? `<span class="card-corner" style="background:var(--anime-color);color:white">Anime</span>`
     : m.type === 'movie'
     ? `<span class="card-corner" style="background:var(--warning);color:#111">Película</span>`
-    : nSeasons > 1 ? `<span class="card-seasons-count">${nSeasons} temporadas</span>` : '';
+    : '';
+  // Badge temporadas (esquina inferior izquierda) — para series Y animes con más de 1 temporada
+  const seasonsBadge = m.type !== 'movie' && nSeasons > 1
+    ? `<span class="card-seasons-count">${nSeasons} temporadas</span>`
+    : '';
+  const cornerHTML = typeBadge + seasonsBadge;
 
   const progressHTML = (m.type !== 'movie' && epTotal > 0) ? `
     <div class="progress-wrap">

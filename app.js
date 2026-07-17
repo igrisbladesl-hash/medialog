@@ -27,6 +27,25 @@ const STATUS_LABEL = { watching: 'Viendo', completed: 'Completada', pending: 'Pe
 const CONT_LABEL = { unknown: '', no: 'No continúa', rumor: 'Continuación rumor', confirmed: 'Continuación confirmada', airing: 'Ya en emisión' };
 
 // ── SUPABASE SYNC ──────────────────────────────────────────────────────────
+function recalcRating(m) {
+  if (m.type !== 'movie' && m.seasons?.length > 0) {
+    const ratings = m.seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
+    if (ratings.length > 0) m.rating = Math.round(ratings.reduce((a,b)=>a+b,0)/ratings.length*10)/10;
+  }
+  return m;
+}
+
+// Decide qué versión de un item tiene más info (más episodios vistos + más temporadas + tiene poster)
+function moreComplete(a, b) {
+  const scoreA = (parseInt(a.updatedAt)||0);
+  const scoreB = (parseInt(b.updatedAt)||0);
+  // Prefer whichever was updated more recently; tie-break by total ep seen
+  if (scoreA !== scoreB) return scoreA > scoreB ? a : b;
+  const epA = (a.seasons||[]).reduce((s,t)=>s+(parseInt(t.epSeen)||0),0);
+  const epB = (b.seasons||[]).reduce((s,t)=>s+(parseInt(t.epSeen)||0),0);
+  return epA >= epB ? a : b;
+}
+
 async function loadFromSupabase() {
   setSyncStatus('syncing');
   try {
@@ -35,29 +54,65 @@ async function loadFromSupabase() {
     });
     if (!res.ok) throw new Error('fetch failed');
     const rows = await res.json();
-    if (rows.length > 0) {
-      mediaList = rows.map(r => {
-        const m = { ...r.data, id: r.id };
-        // Recalcular rating como media de temporadas al cargar
-        if (m.type !== 'movie' && m.seasons?.length > 0) {
-          const ratings = m.seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
-          if (ratings.length > 0) {
-            m.rating = Math.round(ratings.reduce((a,b) => a+b, 0) / ratings.length * 10) / 10;
-          }
-        }
-        return m;
-      });
-      localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
+
+    // Build map from Supabase
+    const remoteMap = {};
+    rows.forEach(r => { remoteMap[r.id] = recalcRating({ ...r.data, id: r.id }); });
+
+    // Build map from localStorage
+    const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
+    const localMap = {};
+    local.forEach(m => { localMap[m.id] = m; });
+
+    // Merge: for each id, keep the more complete version
+    const allIds = new Set([...Object.keys(remoteMap), ...Object.keys(localMap)]);
+    const merged = [];
+    const toSync = []; // items to push to Supabase that it doesn't have or has older version
+
+    allIds.forEach(id => {
+      const remote = remoteMap[id];
+      const loc    = localMap[id];
+      let winner;
+      if (remote && loc) {
+        winner = moreComplete(remote, loc);
+      } else {
+        winner = remote || loc;
+      }
+      merged.push(winner);
+      // If local has something remote doesn't, or local is newer — sync up
+      if (!remote || (loc && winner === loc && JSON.stringify(winner) !== JSON.stringify(remote))) {
+        toSync.push(winner);
+      }
+    });
+
+    // Sort by updatedAt desc
+    merged.sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
+    mediaList = merged;
+    localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
+
+    // Push any local-only or newer-local items to Supabase
+    if (toSync.length > 0) {
+      console.log(`Syncing ${toSync.length} local items to Supabase...`);
+      for (const entry of toSync) await saveToSupabase(entry);
     }
+
     setSyncStatus('ok');
   } catch(e) {
     console.warn('Supabase load failed, using local data', e);
+    // Fall back to localStorage
+    const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
+    if (local.length > 0) mediaList = local;
     setSyncStatus('error');
   }
   render();
 }
 
 async function saveToSupabase(entry) {
+  // Validate before saving — never save corrupt entries
+  if (!entry || !entry.id || !entry.title || !entry.type) {
+    console.warn('Skipping corrupt entry', entry);
+    return;
+  }
   setSyncStatus('syncing');
   try {
     const res = await fetch(DB, {
@@ -345,7 +400,7 @@ function updateModalFields() {
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }
 function closeModalBg(e) { if (e.target.id==='add-modal') closeModal(); }
 
-async function calcRating(type, manualRating, seasons) {
+function calcRating(type, manualRating, seasons) {
   // For movies use manual rating directly
   if (type === 'movie') return manualRating;
   // Collect season ratings that have a value

@@ -34,6 +34,7 @@
       <div class="nav-item" onclick="exportData()"><i class="ti ti-download"></i> Exportar</div>
       <div class="nav-item" onclick="document.getElementById('import-input').click()"><i class="ti ti-upload"></i> Importar</div>
       <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)">
+      <div class="nav-item" onclick="openStats()"><i class="ti ti-chart-bar"></i> Estadísticas</div>
       <div class="nav-item" onclick="openSettings()"><i class="ti ti-settings"></i> Ajustes</div>
     </div>
   </aside>
@@ -248,6 +249,21 @@
     </div>
   </div>
 </div>
+
+<!-- STATS MODAL -->
+<div id="stats-modal" class="overlay" onclick="closeStatsBg(event)">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <h2>📊 Mis estadísticas</h2>
+      <button class="icon-btn" onclick="closeStats()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-body" style="padding-bottom:1rem">
+      <div id="stats-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SEASON COMPLETE DIALOG injected by JS -->
 
 <!-- MOBILE BOTTOM NAV -->
 <nav class="mobile-nav" id="mobile-nav">

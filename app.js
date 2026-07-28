@@ -589,9 +589,18 @@ async function changeEp(id, seasonIdx, delta) {
   if (!m || !m.seasons?.[seasonIdx]) return;
   const s = m.seasons[seasonIdx];
   const maxEp = parseInt(s.epTotal) || Infinity;
-  s.epSeen = Math.min(maxEp, Math.max(0, (parseInt(s.epSeen)||0) + delta));
+  const prevSeen = parseInt(s.epSeen)||0;
+  s.epSeen = Math.min(maxEp, Math.max(0, prevSeen + delta));
+
+  // Check if this season just finished
+  if (delta > 0 && s.epSeen >= maxEp && maxEp > 0 && prevSeen < maxEp) {
+    await handleSeasonComplete(m, seasonIdx);
+    return;
+  }
+
   const allDone = m.seasons.every(s => s.epTotal > 0 && s.epSeen >= s.epTotal);
   if (allDone) m.status = 'completed';
+  m.rating = calcRating(m.type, m.rating, m.seasons);
   m.updatedAt = Date.now();
   saveData();
   render();
@@ -835,7 +844,14 @@ async function quickEp(id, seasonIdx, delta) {
   if (!m || !m.seasons?.[seasonIdx]) return;
   const s = m.seasons[seasonIdx];
   const maxEp = parseInt(s.epTotal) || Infinity;
-  s.epSeen = Math.min(maxEp, Math.max(0, (parseInt(s.epSeen)||0) + delta));
+  const prevSeen = parseInt(s.epSeen)||0;
+  s.epSeen = Math.min(maxEp, Math.max(0, prevSeen + delta));
+
+  if (delta > 0 && s.epSeen >= maxEp && maxEp > 0 && prevSeen < maxEp) {
+    await handleSeasonComplete(m, seasonIdx);
+    return;
+  }
+
   const allDone = m.seasons.every(s => s.epTotal > 0 && s.epSeen >= s.epTotal);
   if (allDone) m.status = 'completed';
   m.rating = calcRating(m.type, m.rating, m.seasons);
@@ -976,11 +992,16 @@ function buildNotifications() {
     }
   });
 
+  const prevTodayIds = new Set(notifications.filter(n=>n.type==='today').map(n=>n.id));
   notifications = newNotifs.sort((a,b) => {
     const order = { today: 0, announced: 1, upcoming: 2 };
     return (order[a.type]||9) - (order[b.type]||9) || a.date.localeCompare(b.date);
   });
   localStorage.setItem('ml_notifs', JSON.stringify(notifications));
+  // Send browser notif for new today episodes
+  notifications.filter(n => n.type === 'today' && !prevTodayIds.has(n.id)).forEach(n => {
+    sendBrowserNotif('📺 ' + n.title, n.desc, n.poster);
+  });
 }
 
 function buildCalendar() {
@@ -1105,3 +1126,208 @@ function formatDate(dateStr) {
 setInterval(() => { if (settings.apiKey) refreshAll(); }, 6 * 60 * 60 * 1000);
 // Initial refresh after 2s (let page load first)
 setTimeout(() => { if (settings.apiKey) refreshAll(); }, 2000);
+
+// ════════════════════════════════════════════════════════════════
+// SMART SEASON COMPLETION
+// ════════════════════════════════════════════════════════════════
+async function handleSeasonComplete(m, seasonIdx) {
+  const s = m.seasons[seasonIdx];
+  const hasMore = seasonIdx < m.seasons.length - 1;
+  const hasMoreConfirmed = m.continuation === 'confirmed' || m.continuation === 'airing';
+  const isLastSeason = !hasMore;
+
+  // Show completion dialog
+  showSeasonCompleteDialog(m, seasonIdx, async (action) => {
+    // action: 'complete_all' | 'next_season' | 'pause' | 'keep'
+    if (action === 'complete_all') {
+      m.status = 'completed';
+    } else if (action === 'next_season') {
+      // Move to next season, keep watching
+      m.status = 'watching';
+      if (hasMore) {
+        // Switch active tab to next season
+        activeSeasonTab[m.id] = seasonIdx + 1;
+      }
+    } else if (action === 'pause') {
+      m.status = 'paused';
+    }
+    // 'keep' = do nothing to status
+
+    m.rating = calcRating(m.type, m.rating, m.seasons);
+    m.updatedAt = Date.now();
+    saveData();
+    render();
+    // If detail is open, refresh it
+    if (document.getElementById('detail-modal').classList.contains('open')) {
+      openDetail(m.id);
+    }
+    await saveToSupabase(m);
+  });
+}
+
+function showSeasonCompleteDialog(m, seasonIdx, callback) {
+  const s = m.seasons[seasonIdx];
+  const hasMore = seasonIdx < m.seasons.length - 1;
+  const nextSeasonNum = (m.seasons[seasonIdx + 1]?.number) || (seasonIdx + 2);
+  const contLabel = { confirmed: 'Continuación confirmada', airing: 'Ya en emisión', rumor: 'Rumor de continuación', no: 'Sin continuación', unknown: '' };
+
+  // Remove existing dialog if any
+  document.getElementById('season-complete-dialog')?.remove();
+
+  const div = document.createElement('div');
+  div.id = 'season-complete-dialog';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(4px)';
+
+  const poster = getCardPoster(m);
+  const posterHTML = poster ? `<img src="${poster}" style="width:60px;height:90px;object-fit:cover;border-radius:8px;flex-shrink:0" alt="">` : `<div style="width:60px;height:90px;background:var(--surface-3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0">${TYPE_EMOJI[m.type]}</div>`;
+
+  div.innerHTML = `<div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:16px;padding:1.5rem;max-width:380px;width:100%">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:1rem">
+      ${posterHTML}
+      <div>
+        <div style="font-size:11px;color:var(--success);font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">✓ Temporada completada</div>
+        <div style="font-size:16px;font-weight:700">${m.title}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Temporada ${s.number || seasonIdx+1} — ${s.epSeen} episodios</div>
+        ${m.continuation && m.continuation !== 'unknown' ? `<div style="font-size:11px;color:var(--anime-text);margin-top:3px">${contLabel[m.continuation]||''}</div>` : ''}
+      </div>
+    </div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem">¿Qué quieres hacer?</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${hasMore ? `<button class="scd-btn" onclick="scdAction('next_season')" style="background:var(--accent-bg);border-color:var(--accent);color:var(--accent-text)"><i class="ti ti-player-skip-forward"></i> Pasar a la Temporada ${nextSeasonNum}</button>` : ''}
+      <button class="scd-btn" onclick="scdAction('complete_all')" style="background:var(--success-bg);border-color:var(--success);color:var(--success-text)"><i class="ti ti-circle-check"></i> Marcar ${hasMore ? 'todo' : 'como'} completada</button>
+      <button class="scd-btn" onclick="scdAction('pause')" style="background:var(--warning-bg);border-color:var(--warning);color:var(--warning-text)"><i class="ti ti-player-pause"></i> Poner en pausa (esperando siguiente)</button>
+      <button class="scd-btn" onclick="scdAction('keep')" style="background:var(--surface-3);border-color:var(--border);color:var(--text-secondary)"><i class="ti ti-x"></i> Cerrar</button>
+    </div>
+  </div>`;
+
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target === div) { div.remove(); callback('keep'); } });
+  window._scdCallback = callback;
+}
+
+function scdAction(action) {
+  document.getElementById('season-complete-dialog')?.remove();
+  if (window._scdCallback) window._scdCallback(action);
+}
+
+// ════════════════════════════════════════════════════════════════
+// BROWSER NOTIFICATIONS
+// ════════════════════════════════════════════════════════════════
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  const perm = await Notification.requestPermission();
+  return perm === 'granted';
+}
+
+async function sendBrowserNotif(title, body, icon) {
+  const ok = await requestNotifPermission();
+  if (!ok) return;
+  new Notification(title, { body, icon: icon || '/favicon.ico', badge: '/favicon.ico' });
+}
+
+// Browser notifs are sent inline in buildNotifications
+
+// ════════════════════════════════════════════════════════════════
+// STATISTICS PAGE
+// ════════════════════════════════════════════════════════════════
+function openStats() {
+  document.getElementById('stats-modal').classList.add('open');
+  renderStats_full();
+}
+function closeStats() { document.getElementById('stats-modal').classList.remove('open'); }
+function closeStatsBg(e) { if (e.target.id === 'stats-modal') closeStats(); }
+
+function renderStats_full() {
+  const all = mediaList;
+  if (all.length === 0) {
+    document.getElementById('stats-content').innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem">Añade títulos para ver estadísticas.</p>';
+    return;
+  }
+
+  // Total episodes & estimated hours (avg 23 min anime, 45 min series, 120 min movies)
+  const totalEpAll = all.reduce((a,m) => a + totalEpSeen(m), 0);
+  const estMinutes = all.reduce((a,m) => {
+    const ep = totalEpSeen(m);
+    const mins = m.type === 'movie' ? 120 : m.type === 'anime' ? 23 : 44;
+    return a + ep * mins;
+  }, 0);
+  const hours = Math.floor(estMinutes / 60);
+  const days  = Math.floor(hours / 24);
+
+  // Genre breakdown
+  const genreCount = {};
+  all.forEach(m => {
+    (m.genre||'').split(',').forEach(g => {
+      const gt = g.trim();
+      if (gt) genreCount[gt] = (genreCount[gt]||0) + 1;
+    });
+  });
+  const topGenres = Object.entries(genreCount).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  // Ratings
+  const rated = all.filter(m => parseFloat(m.rating) > 0);
+  const avgRating = rated.length ? (rated.reduce((a,m)=>a+(parseFloat(m.rating)||0),0)/rated.length).toFixed(1) : '—';
+  const topRated  = [...all].filter(m=>m.rating).sort((a,b)=>(parseFloat(b.rating)||0)-(parseFloat(a.rating)||0)).slice(0,3);
+
+  // By type
+  const byType = { series: all.filter(m=>m.type==='series').length, anime: all.filter(m=>m.type==='anime').length, movie: all.filter(m=>m.type==='movie').length };
+
+  // Completion rate
+  const completed = all.filter(m=>m.status==='completed').length;
+  const compRate  = all.length ? Math.round(completed/all.length*100) : 0;
+
+  const statCard = (icon, label, value, color='var(--text-primary)') =>
+    `<div class="stat-card"><i class="ti ${icon}" style="color:${color};font-size:22px;margin-bottom:6px"></i><div class="stat-card-val" style="color:${color}">${value}</div><div class="stat-card-label">${label}</div></div>`;
+
+  const genreBar = topGenres.map(([g,n]) => {
+    const pct = Math.round(n/all.length*100);
+    return `<div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>${g}</span><span style="color:var(--text-muted)">${n}</span></div>
+      <div class="progress-bar"><div class="progress-fill fill-watching" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+
+  const topRatedHTML = topRated.map(m => {
+    const poster = getCardPoster(m);
+    return `<div style="display:flex;gap:10px;align-items:center;padding:8px;background:var(--surface-3);border-radius:var(--radius);margin-bottom:6px">
+      ${poster ? `<img src="${poster}" style="width:36px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">` : `<div style="width:36px;height:52px;background:var(--surface-2);border-radius:6px;display:flex;align-items:center;justify-content:center">${TYPE_EMOJI[m.type]}</div>`}
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div><div style="font-size:11px;color:var(--text-muted)">${TYPE_LABELS[m.type]}</div></div>
+      <div style="font-size:16px;font-weight:700;color:var(--warning-text)">★ ${m.rating}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('stats-content').innerHTML = `
+    <div class="stats-grid">
+      ${statCard('ti-list-numbers', 'Episodios vistos', totalEpAll, 'var(--accent-text)')}
+      ${statCard('ti-clock', 'Horas estimadas', hours + 'h', 'var(--anime-text)')}
+      ${statCard('ti-calendar', 'Días de contenido', days + 'd', 'var(--success)')}
+      ${statCard('ti-star', 'Nota media', avgRating, 'var(--warning-text)')}
+      ${statCard('ti-circle-check', 'Completadas', compRate + '%', 'var(--success)')}
+      ${statCard('ti-library', 'Total títulos', all.length, 'var(--text-primary)')}
+    </div>
+
+    <div class="stats-row">
+      <div class="stats-section">
+        <div class="stats-section-title">Por tipo</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="type-pill" style="background:var(--accent-bg);color:var(--accent-text)">📺 ${byType.series} series</div>
+          <div class="type-pill" style="background:var(--anime-bg);color:var(--anime-text)">⛩️ ${byType.anime} animes</div>
+          <div class="type-pill" style="background:var(--warning-bg);color:var(--warning-text)">🎬 ${byType.movie} películas</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stats-section" style="flex:1">
+        <div class="stats-section-title">Géneros favoritos</div>
+        ${genreBar || '<p style="font-size:12px;color:var(--text-muted)">Sin datos de género</p>'}
+      </div>
+      <div class="stats-section" style="flex:1">
+        <div class="stats-section-title">Mejor valoradas</div>
+        ${topRatedHTML || '<p style="font-size:12px;color:var(--text-muted)">Sin puntuaciones</p>'}
+      </div>
+    </div>
+  `;
+}

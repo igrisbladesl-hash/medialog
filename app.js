@@ -218,55 +218,6 @@ function getCardPoster(m) {
   return (m.seasons||[])[0]?.poster || '';
 }
 
-function renderCard(m) {
-  const isAnime  = m.type === 'anime';
-  const epSeen   = m.type === 'movie' ? 0 : totalEpSeen(m);
-  const epTotal  = m.type === 'movie' ? 0 : totalEpTotal(m);
-  const pct      = epTotal > 0 ? Math.round((epSeen/epTotal)*100) : 0;
-  const fillCls  = m.status === 'completed' ? 'fill-completed' : (isAnime ? 'fill-anime' : 'fill-watching');
-  const poster   = getCardPoster(m);
-  const nSeasons = (m.seasons||[]).length;
-
-  const posterHTML = poster
-    ? `<img src="${poster}" alt="${m.title}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-poster-placeholder\\'><span>${TYPE_EMOJI[m.type]}</span></div>'">`
-    : `<div class="card-poster-placeholder" style="background:${isAnime?'var(--anime-bg)':'var(--accent-bg)'}">
-         <span>${TYPE_EMOJI[m.type]}</span><span>${m.title.slice(0,18)}</span>
-       </div>`;
-
-  // Badge tipo (esquina superior derecha)
-  const typeBadge = m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie)
-    ? `<span class="card-corner" style="background:var(--anime-color);color:white">Anime</span>`
-    : m.type === 'movie'
-    ? `<span class="card-corner" style="background:var(--warning);color:#111">Película</span>`
-    : '';
-  // Badge temporadas (esquina inferior izquierda) — para series Y animes con más de 1 temporada
-  const seasonsBadge = m.type !== 'movie' && nSeasons > 1
-    ? `<span class="card-seasons-count">${nSeasons} temporadas</span>`
-    : '';
-  const cornerHTML = typeBadge + seasonsBadge;
-
-  const progressHTML = (m.type !== 'movie' && epTotal > 0) ? `
-    <div class="progress-wrap">
-      <div class="progress-label"><span>${epSeen}/${epTotal} ep</span><span>${pct}%</span></div>
-      <div class="progress-bar"><div class="progress-fill ${fillCls}" style="width:${pct}%"></div></div>
-    </div>` : '';
-
-  return `<div class="card" onclick="openDetail('${m.id}')" role="button" tabindex="0" aria-label="${m.title}">
-    <div class="card-poster">
-      ${posterHTML}
-      <div class="card-poster-overlay"></div>
-      ${cornerHTML}
-      ${m.rating ? `<span class="card-rating">★ ${m.rating}</span>` : ''}
-    </div>
-    <div class="card-body">
-      <div class="card-title">${m.title}</div>
-      <div class="card-meta">${[m.year, m.genre].filter(Boolean).join(' · ')}</div>
-      <div class="card-tags">${statusTag(m.status)}${contTag(m.continuation)}</div>
-      ${progressHTML}
-    </div>
-  </div>`;
-}
-
 // ── STATS ──────────────────────────────────────────────────────────────────
 function renderStats() {
   const all = mediaList;
@@ -786,3 +737,371 @@ async function deleteAll() {
   render();
   for (const item of all) await deleteFromSupabase(item.id);
 }
+
+// ════════════════════════════════════════════════════════════════
+// QUICK CONTROLS — episodios y rating desde la tarjeta
+// ════════════════════════════════════════════════════════════════
+
+// Reescribir renderCard para incluir controles rápidos
+function renderCard(m) {
+  const isAnime  = m.type === 'anime';
+  const epSeen   = m.type === 'movie' ? 0 : totalEpSeen(m);
+  const epTotal  = m.type === 'movie' ? 0 : totalEpTotal(m);
+  const pct      = epTotal > 0 ? Math.round((epSeen/epTotal)*100) : 0;
+  const fillCls  = m.status === 'completed' ? 'fill-completed' : (isAnime ? 'fill-anime' : 'fill-watching');
+  const poster   = getCardPoster(m);
+  const nSeasons = (m.seasons||[]).length;
+
+  const posterHTML = poster
+    ? `<img src="${poster}" alt="${m.title}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-poster-placeholder\\'><span>${TYPE_EMOJI[m.type]}</span></div>'">`
+    : `<div class="card-poster-placeholder" style="background:${isAnime?'var(--anime-bg)':'var(--accent-bg)'}">
+         <span>${TYPE_EMOJI[m.type]}</span><span>${m.title.slice(0,18)}</span>
+       </div>`;
+
+  const typeBadge = m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie)
+    ? `<span class="card-corner" style="background:var(--anime-color);color:white">Anime</span>`
+    : m.type === 'movie'
+    ? `<span class="card-corner" style="background:var(--warning);color:#111">Película</span>`
+    : '';
+  const seasonsBadge = m.type !== 'movie' && nSeasons > 1
+    ? `<span class="card-seasons-count">${nSeasons} temporadas</span>`
+    : '';
+
+  const progressHTML = (m.type !== 'movie' && epTotal > 0) ? `
+    <div class="progress-wrap">
+      <div class="progress-label"><span>${epSeen}/${epTotal} ep</span><span>${pct}%</span></div>
+      <div class="progress-bar"><div class="progress-fill ${fillCls}" style="width:${pct}%"></div></div>
+    </div>` : '';
+
+  // Quick controls — current season (last active or first incomplete)
+  const activeSeason = getActiveSeason(m);
+  const qSeasonIdx   = activeSeason.idx;
+  const qSeason      = activeSeason.season;
+  const qEpSeen      = parseInt(qSeason?.epSeen)||0;
+  const qEpTotal     = parseInt(qSeason?.epTotal)||0;
+  const qRating      = parseFloat(m.rating)||0;
+
+  const quickEp = m.type !== 'movie' && qSeason ? `
+    <div class="card-quick-ep">
+      <button class="qbtn" onclick="event.stopPropagation();quickEp('${m.id}',${qSeasonIdx},-1)">−</button>
+      <span class="qep-label">T${(qSeason.number||qSeasonIdx+1)} · ${qEpSeen}/${qEpTotal||'?'}</span>
+      <button class="qbtn" onclick="event.stopPropagation();quickEp('${m.id}',${qSeasonIdx},1)">+</button>
+    </div>` : '';
+
+  const quickRating = `
+    <div class="qrating">
+      <button class="qrating-btn" onclick="event.stopPropagation();quickRating('${m.id}',-0.5)">−</button>
+      <span class="qrating-val">${qRating||'—'}</span>
+      <button class="qrating-btn" onclick="event.stopPropagation();quickRating('${m.id}',0.5)">+</button>
+    </div>`;
+
+  return `<div class="card" onclick="openDetail('${m.id}')" role="button" tabindex="0" aria-label="${m.title}">
+    <div class="card-poster">
+      ${posterHTML}
+      <div class="card-poster-overlay"></div>
+      ${typeBadge}${seasonsBadge}
+      ${m.rating ? `<span class="card-rating">★ ${m.rating}</span>` : ''}
+      <div class="card-quick">
+        ${quickEp}
+        ${quickRating}
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-title">${m.title}</div>
+      <div class="card-meta">${[m.year, m.genre].filter(Boolean).join(' · ')}</div>
+      <div class="card-tags">${statusTag(m.status)}${contTag(m.continuation)}</div>
+      ${progressHTML}
+    </div>
+  </div>`;
+}
+
+// Get the active season (first incomplete, or last)
+function getActiveSeason(m) {
+  const seasons = m.seasons || [];
+  if (seasons.length === 0) return { idx: 0, season: null };
+  // Find first season not completed
+  for (let i = 0; i < seasons.length; i++) {
+    const s = seasons[i];
+    const seen = parseInt(s.epSeen)||0;
+    const total = parseInt(s.epTotal)||0;
+    if (total === 0 || seen < total) return { idx: i, season: s };
+  }
+  // All complete — return last
+  return { idx: seasons.length-1, season: seasons[seasons.length-1] };
+}
+
+async function quickEp(id, seasonIdx, delta) {
+  const m = mediaList.find(x => x.id === id);
+  if (!m || !m.seasons?.[seasonIdx]) return;
+  const s = m.seasons[seasonIdx];
+  const maxEp = parseInt(s.epTotal) || Infinity;
+  s.epSeen = Math.min(maxEp, Math.max(0, (parseInt(s.epSeen)||0) + delta));
+  const allDone = m.seasons.every(s => s.epTotal > 0 && s.epSeen >= s.epTotal);
+  if (allDone) m.status = 'completed';
+  m.rating = calcRating(m.type, m.rating, m.seasons);
+  m.updatedAt = Date.now();
+  saveData();
+  render();
+  await saveToSupabase(m);
+}
+
+async function quickRating(id, delta) {
+  const m = mediaList.find(x => x.id === id);
+  if (!m) return;
+  const current = parseFloat(m.rating) || 0;
+  m.rating = Math.min(10, Math.max(0, Math.round((current + delta) * 10) / 10));
+  m.updatedAt = Date.now();
+  saveData();
+  render();
+  await saveToSupabase(m);
+}
+
+// ════════════════════════════════════════════════════════════════
+// TMDB LIVE DATA — calendar & notifications
+// ════════════════════════════════════════════════════════════════
+let tmdbCache = {};     // { tmdbId: { nextEp, lastEp, status, updated } }
+let notifications = JSON.parse(localStorage.getItem('ml_notifs') || '[]');
+let calendarData  = [];
+let panelOpen     = null; // 'notif' | 'calendar' | null
+
+function toggleNotifications() {
+  if (panelOpen === 'notif') { closePanel(); return; }
+  closePanel();
+  panelOpen = 'notif';
+  document.getElementById('notif-panel').style.display = 'flex';
+  renderNotifications();
+  refreshAll();
+}
+
+function toggleCalendar() {
+  if (panelOpen === 'calendar') { closePanel(); return; }
+  closePanel();
+  panelOpen = 'calendar';
+  document.getElementById('calendar-panel').style.display = 'flex';
+  renderCalendar();
+  refreshAll();
+}
+
+function closePanel() {
+  document.getElementById('notif-panel').style.display = 'none';
+  document.getElementById('calendar-panel').style.display = 'none';
+  panelOpen = null;
+}
+
+async function refreshAll() {
+  if (!settings.apiKey) return;
+  const watching = mediaList.filter(m => m.tmdbId && m.tmdbType === 'tv' && m.status !== 'dropped');
+  for (const m of watching) {
+    await fetchTMDBLive(m);
+  }
+  buildNotifications();
+  buildCalendar();
+  if (panelOpen === 'notif')    renderNotifications();
+  if (panelOpen === 'calendar') renderCalendar();
+  updateNotifDot();
+}
+
+async function fetchTMDBLive(m) {
+  const cacheKey = m.tmdbId;
+  const cached = tmdbCache[cacheKey];
+  // Refresh every 6 hours
+  if (cached && (Date.now() - cached.updated) < 6 * 60 * 60 * 1000) return;
+
+  try {
+    const res  = await fetch(`https://api.themoviedb.org/3/tv/${m.tmdbId}?api_key=${settings.apiKey}&language=${settings.lang}`);
+    const det  = await res.json();
+    tmdbCache[cacheKey] = {
+      id:       m.tmdbId,
+      mediaId:  m.id,
+      title:    m.title,
+      poster:   getCardPoster(m),
+      status:   det.status,
+      nextEp:   det.next_episode_to_air || null,
+      lastEp:   det.last_episode_to_air || null,
+      inProd:   det.in_production,
+      updated:  Date.now(),
+    };
+    // Auto-update continuation status in library
+    const entry = mediaList.find(x => x.id === m.id);
+    if (entry) {
+      let newCont = entry.continuation;
+      if (det.status === 'Ended' || det.status === 'Canceled') newCont = 'no';
+      else if (det.next_episode_to_air) newCont = 'airing';
+      else if (det.in_production) newCont = 'confirmed';
+      if (newCont !== entry.continuation) {
+        entry.continuation = newCont;
+        entry.updatedAt = Date.now();
+        saveData();
+        await saveToSupabase(entry);
+      }
+    }
+  } catch(e) {}
+}
+
+function buildNotifications() {
+  const newNotifs = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const seenIds = new Set(notifications.filter(n => n.seen).map(n => n.id));
+
+  Object.values(tmdbCache).forEach(data => {
+    // Episode airing today
+    if (data.nextEp) {
+      const airDate = data.nextEp.air_date;
+      const nid = `ep-${data.id}-${data.nextEp.season_number}-${data.nextEp.episode_number}`;
+      if (airDate === today) {
+        newNotifs.push({
+          id: nid, type: 'today', mediaId: data.mediaId, poster: data.poster,
+          title: data.title,
+          desc: `Episodio ${data.nextEp.episode_number} de T${data.nextEp.season_number} — hoy`,
+          date: today, seen: seenIds.has(nid),
+        });
+      } else if (airDate > today) {
+        newNotifs.push({
+          id: nid, type: 'upcoming', mediaId: data.mediaId, poster: data.poster,
+          title: data.title,
+          desc: `Próximo ep ${data.nextEp.episode_number} T${data.nextEp.season_number} — ${formatDate(airDate)}`,
+          date: airDate, seen: true,
+        });
+      }
+    }
+    // New season announced
+    if (data.inProd && data.status !== 'Ended') {
+      const nid = `s2-${data.id}`;
+      newNotifs.push({
+        id: nid, type: 'announced', mediaId: data.mediaId, poster: data.poster,
+        title: data.title,
+        desc: data.nextEp ? `Nueva temporada en producción` : `Continuación confirmada`,
+        date: '', seen: seenIds.has(nid),
+      });
+    }
+  });
+
+  notifications = newNotifs.sort((a,b) => {
+    const order = { today: 0, announced: 1, upcoming: 2 };
+    return (order[a.type]||9) - (order[b.type]||9) || a.date.localeCompare(b.date);
+  });
+  localStorage.setItem('ml_notifs', JSON.stringify(notifications));
+}
+
+function buildCalendar() {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const in30 = new Date(today.getTime() + 30*24*60*60*1000).toISOString().slice(0,10);
+  calendarData = [];
+
+  Object.values(tmdbCache).forEach(data => {
+    if (data.nextEp && data.nextEp.air_date >= todayStr && data.nextEp.air_date <= in30) {
+      calendarData.push({
+        date: data.nextEp.air_date,
+        mediaId: data.mediaId,
+        poster: data.poster,
+        title: data.title,
+        season: data.nextEp.season_number,
+        episode: data.nextEp.episode_number,
+        epName: data.nextEp.name || '',
+      });
+    }
+  });
+
+  calendarData.sort((a,b) => a.date.localeCompare(b.date));
+}
+
+function renderNotifications() {
+  const el = document.getElementById('notif-list');
+  if (!el) return;
+
+  const today   = notifications.filter(n => n.type === 'today');
+  const announ  = notifications.filter(n => n.type === 'announced');
+  const upcoming= notifications.filter(n => n.type === 'upcoming');
+
+  if (notifications.length === 0) {
+    el.innerHTML = `<div class="notif-empty"><i class="ti ti-bell-off"></i>Sin notificaciones.<br><small>Añade series con TMDB para ver actualizaciones.</small></div>`;
+    return;
+  }
+
+  let html = '';
+  if (today.length) {
+    html += `<div class="notif-section-label">🟢 Hoy</div>`;
+    html += today.map(n => notifItemHTML(n)).join('');
+  }
+  if (announ.length) {
+    html += `<div class="notif-section-label">📢 Anunciadas</div>`;
+    html += announ.map(n => notifItemHTML(n)).join('');
+  }
+  if (upcoming.length) {
+    html += `<div class="notif-section-label">📅 Próximamente</div>`;
+    html += upcoming.map(n => notifItemHTML(n)).join('');
+  }
+  el.innerHTML = html;
+
+  // Mark all as seen
+  notifications.forEach(n => n.seen = true);
+  localStorage.setItem('ml_notifs', JSON.stringify(notifications));
+  updateNotifDot();
+}
+
+function notifItemHTML(n) {
+  const cls = n.type === 'today' ? 'notif-today' : n.type === 'announced' ? 'notif-announced' : '';
+  const poster = n.poster ? `<img src="${n.poster}" alt="">` : `<div class="notif-poster-ph">📺</div>`;
+  return `<div class="notif-item ${cls}" onclick="closePanel();openDetail('${n.mediaId}')">
+    <div class="notif-poster">${poster}</div>
+    <div class="notif-content">
+      <div class="notif-title">${n.title}</div>
+      <div class="notif-desc">${n.desc}</div>
+    </div>
+  </div>`;
+}
+
+function renderCalendar() {
+  const el = document.getElementById('calendar-list');
+  if (!el) return;
+
+  if (calendarData.length === 0) {
+    el.innerHTML = `<div class="notif-empty"><i class="ti ti-calendar-off"></i>Sin episodios próximos.<br><small>Solo aparecen series marcadas como "Viendo" con TMDB conectado.</small></div>`;
+    return;
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const grouped  = {};
+  calendarData.forEach(item => {
+    if (!grouped[item.date]) grouped[item.date] = [];
+    grouped[item.date].push(item);
+  });
+
+  let html = '';
+  Object.entries(grouped).forEach(([date, items]) => {
+    const isToday = date === todayStr;
+    const label   = isToday ? '🟢 Hoy' : formatDate(date);
+    html += `<div class="cal-day">
+      <div class="cal-day-label ${isToday?'today':''}">${label}</div>
+      ${items.map(item => {
+        const poster = item.poster ? `<img src="${item.poster}" alt="">` : '';
+        return `<div class="cal-item ${isToday?'today-ep':''}" onclick="closePanel();openDetail('${item.mediaId}')">
+          <div class="cal-poster">${poster}</div>
+          <div class="cal-info">
+            <div class="cal-title">${item.title}</div>
+            <div class="cal-ep">T${item.season} · Ep ${item.episode}${item.epName?' — '+item.epName:''}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function updateNotifDot() {
+  const dot  = document.getElementById('notif-dot');
+  const unseen = notifications.filter(n => !n.seen && n.type === 'today');
+  if (dot) dot.style.display = unseen.length > 0 ? 'block' : 'none';
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('es-ES', { weekday:'short', day:'numeric', month:'short' });
+}
+
+// Auto-refresh TMDB data every 6h while page is open
+setInterval(() => { if (settings.apiKey) refreshAll(); }, 6 * 60 * 60 * 1000);
+// Initial refresh after 2s (let page load first)
+setTimeout(() => { if (settings.apiKey) refreshAll(); }, 2000);

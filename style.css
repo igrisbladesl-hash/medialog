@@ -524,3 +524,40 @@ a { color: var(--accent-text); }
   .card-quick { opacity: 1; } /* always visible on mobile */
   .qbtn { width: 30px; height: 30px; }
 }
+
+/* ── SEASON COMPLETE DIALOG ── */
+.scd-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: var(--radius);
+  border: 1px solid; font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: inherit; width: 100%;
+  transition: opacity 0.15s;
+}
+.scd-btn:hover { opacity: 0.85; }
+.scd-btn i { font-size: 16px; }
+
+/* ── STATISTICS ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 1.25rem;
+}
+.stat-card {
+  background: var(--surface-3);
+  border-radius: var(--radius);
+  padding: 14px 10px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+.stat-card-val { font-size: 22px; font-weight: 700; margin-bottom: 3px; }
+.stat-card-label { font-size: 11px; color: var(--text-muted); }
+.stats-row { display: flex; gap: 12px; margin-bottom: 1rem; flex-wrap: wrap; }
+.stats-section { flex: 1; min-width: 200px; }
+.stats-section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+.type-pill { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+
+@media (max-width: 700px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .stats-row { flex-direction: column; }
+}

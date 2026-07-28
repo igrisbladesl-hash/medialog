@@ -51,10 +51,40 @@
           <option value="title">A–Z</option>
           <option value="rating">Puntuación</option>
         </select>
+        <button class="icon-btn" onclick="toggleCalendar()" title="Próximos episodios" style="position:relative"><i class="ti ti-calendar"></i></button>
+        <button class="icon-btn" onclick="toggleNotifications()" title="Notificaciones" style="position:relative">
+          <i class="ti ti-bell"></i>
+          <span class="notif-dot" id="notif-dot" style="display:none"></span>
+        </button>
         <div id="sync-indicator" style="display:flex;align-items:center" title="Estado de sincronización"><i class="ti ti-cloud" style="color:var(--text-muted);font-size:16px"></i></div>
         <button class="btn-add" onclick="openModal()"><i class="ti ti-plus"></i> Añadir</button>
       </div>
     </div>
+
+    <!-- NOTIFICATIONS PANEL -->
+    <div id="notif-panel" class="side-panel" style="display:none">
+      <div class="side-panel-header">
+        <span>Notificaciones</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="refreshAll()"><i class="ti ti-refresh"></i></button>
+          <button class="icon-btn-sm" onclick="toggleNotifications()"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div id="notif-list" class="side-panel-body"><div class="panel-loading"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Cargando...</div></div>
+    </div>
+
+    <!-- CALENDAR PANEL -->
+    <div id="calendar-panel" class="side-panel" style="display:none">
+      <div class="side-panel-header">
+        <span>Próximos episodios</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="refreshAll()"><i class="ti ti-refresh"></i></button>
+          <button class="icon-btn-sm" onclick="toggleCalendar()"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div id="calendar-list" class="side-panel-body"><div class="panel-loading"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Cargando...</div></div>
+    </div>
+
     <div class="stats-bar" id="stats-bar"></div>
     <div class="content">
       <div class="grid" id="media-grid"></div>

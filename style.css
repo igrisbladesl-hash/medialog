@@ -561,3 +561,41 @@ a { color: var(--accent-text); }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .stats-row { flex-direction: column; }
 }
+
+/* ── NOTIF TABS & MISSING CLASSES ── */
+.notif-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.notif-tab {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+.notif-tab.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.notif-history-count {
+  display: inline-block;
+  background: var(--surface-3);
+  border-radius: 10px;
+  font-size: 10px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  color: var(--text-muted);
+}
+.notif-cancelled { border-color: var(--danger); background: var(--danger-bg); }
+.notif-ended { border-color: var(--text-muted); background: var(--surface-3); }

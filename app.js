@@ -672,6 +672,7 @@ document.head.appendChild(style);
 
 // ── INIT ───────────────────────────────────────────────────────────────────
 loadFromSupabase();
+loadNotifHistory();
 
 // ── MOBILE NAV ─────────────────────────────────────────────────────────────
 function mobileNav(section, el) {
@@ -906,7 +907,7 @@ function closePanel() {
 
 async function refreshAll() {
   if (!settings.apiKey) return;
-  const watching = mediaList.filter(m => m.tmdbId && m.tmdbType === 'tv' && m.status !== 'dropped');
+  const watching = mediaList.filter(m => m.tmdbId && m.tmdbType === 'tv' && m.status !== 'dropped' && m.status !== 'pending');
   for (const m of watching) {
     await fetchTMDBLive(m);
   }
@@ -927,15 +928,16 @@ async function fetchTMDBLive(m) {
     const res  = await fetch(`https://api.themoviedb.org/3/tv/${m.tmdbId}?api_key=${settings.apiKey}&language=${settings.lang}`);
     const det  = await res.json();
     tmdbCache[cacheKey] = {
-      id:       m.tmdbId,
-      mediaId:  m.id,
-      title:    m.title,
-      poster:   getCardPoster(m),
-      status:   det.status,
-      nextEp:   det.next_episode_to_air || null,
-      lastEp:   det.last_episode_to_air || null,
-      inProd:   det.in_production,
-      updated:  Date.now(),
+      id:         m.tmdbId,
+      mediaId:    m.id,
+      title:      m.title,
+      poster:     getCardPoster(m),
+      status:     det.status,
+      nextEp:     det.next_episode_to_air || null,
+      lastEp:     det.last_episode_to_air || null,
+      lastSeason: det.number_of_seasons || null,
+      inProd:     det.in_production,
+      updated:    Date.now(),
     };
     // Auto-update continuation status in library
     const entry = mediaList.find(x => x.id === m.id);
@@ -954,53 +956,161 @@ async function fetchTMDBLive(m) {
   } catch(e) {}
 }
 
+// ── NOTIFICATION HISTORY (permanent, saved to Supabase) ──────────────────
+let notifHistory = JSON.parse(localStorage.getItem('ml_notif_history') || '[]');
+
+async function loadNotifHistory() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/notif_history?select=*&order=created_at.desc&limit=200`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (res.ok) {
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0) {
+        notifHistory = rows.map(r => r.data || r);
+        localStorage.setItem('ml_notif_history', JSON.stringify(notifHistory));
+      }
+    }
+  } catch(e) {}
+}
+
+async function saveNotifToHistory(notif) {
+  // Avoid duplicates
+  if (notifHistory.find(n => n.id === notif.id)) return;
+  const entry = { ...notif, createdAt: Date.now(), seen: false };
+  notifHistory.unshift(entry);
+  // Keep max 500 in local
+  if (notifHistory.length > 500) notifHistory = notifHistory.slice(0, 500);
+  localStorage.setItem('ml_notif_history', JSON.stringify(notifHistory));
+  // Save to Supabase
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/notif_history`, {
+      method: 'POST',
+      headers: { ...HEADERS, 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({ id: notif.id, data: entry, created_at: new Date().toISOString() })
+    });
+  } catch(e) {}
+}
+
+function markHistorySeen() {
+  notifHistory.forEach(n => n.seen = true);
+  localStorage.setItem('ml_notif_history', JSON.stringify(notifHistory));
+}
+
+// Track previous TMDB states to detect changes
+let prevTmdbStates = JSON.parse(localStorage.getItem('ml_tmdb_states') || '{}');
+
 function buildNotifications() {
   const newNotifs = [];
   const today = new Date().toISOString().slice(0, 10);
   const seenIds = new Set(notifications.filter(n => n.seen).map(n => n.id));
+  const newHistoryItems = [];
 
   Object.values(tmdbCache).forEach(data => {
-    // Episode airing today
+    const prev = prevTmdbStates[data.id] || {};
+
+    // ── Episode airing today ──
     if (data.nextEp) {
       const airDate = data.nextEp.air_date;
       const nid = `ep-${data.id}-${data.nextEp.season_number}-${data.nextEp.episode_number}`;
       if (airDate === today) {
-        newNotifs.push({
-          id: nid, type: 'today', mediaId: data.mediaId, poster: data.poster,
-          title: data.title,
-          desc: `Episodio ${data.nextEp.episode_number} de T${data.nextEp.season_number} — hoy`,
-          date: today, seen: seenIds.has(nid),
-        });
+        const n = { id: nid, type: 'today', mediaId: data.mediaId, poster: data.poster,
+          title: data.title, icon: '📺',
+          desc: `Sale hoy el episodio ${data.nextEp.episode_number} de T${data.nextEp.season_number}`,
+          date: today, seen: seenIds.has(nid) };
+        newNotifs.push(n);
+        newHistoryItems.push(n);
       } else if (airDate > today) {
-        newNotifs.push({
-          id: nid, type: 'upcoming', mediaId: data.mediaId, poster: data.poster,
-          title: data.title,
-          desc: `Próximo ep ${data.nextEp.episode_number} T${data.nextEp.season_number} — ${formatDate(airDate)}`,
-          date: airDate, seen: true,
-        });
+        newNotifs.push({ id: nid, type: 'upcoming', mediaId: data.mediaId, poster: data.poster,
+          title: data.title, icon: '📅',
+          desc: `Ep ${data.nextEp.episode_number} T${data.nextEp.season_number} — ${formatDate(airDate)}`,
+          date: airDate, seen: true });
       }
     }
-    // New season announced
-    if (data.inProd && data.status !== 'Ended') {
-      const nid = `s2-${data.id}`;
-      newNotifs.push({
-        id: nid, type: 'announced', mediaId: data.mediaId, poster: data.poster,
-        title: data.title,
-        desc: data.nextEp ? `Nueva temporada en producción` : `Continuación confirmada`,
-        date: '', seen: seenIds.has(nid),
-      });
+
+    // ── New season confirmed (TMDB change detected) ──
+    if (data.inProd && prev.inProd === false) {
+      const nid = `prod-start-${data.id}-${Date.now()}`;
+      const n = { id: nid, type: 'announced', mediaId: data.mediaId, poster: data.poster,
+        title: data.title, icon: '🎉',
+        desc: `¡Nueva temporada confirmada! Ha entrado en producción`,
+        date: today, seen: false };
+      newNotifs.push(n); newHistoryItems.push(n);
     }
+
+    // ── Next episode announced (didn't have one before) ──
+    if (data.nextEp && !prev.nextEpId) {
+      const nid = `next-ep-announced-${data.id}-${data.nextEp.season_number}`;
+      const n = { id: nid, type: 'announced', mediaId: data.mediaId, poster: data.poster,
+        title: data.title, icon: '📢',
+        desc: `T${data.nextEp.season_number} anunciada — primer episodio el ${formatDate(data.nextEp.air_date)}`,
+        date: today, seen: seenIds.has(nid) };
+      newNotifs.push(n); newHistoryItems.push(n);
+    }
+
+    // ── Season number increased ──
+    if (prev.lastSeason && data.lastSeason && data.lastSeason > prev.lastSeason) {
+      const nid = `new-season-${data.id}-${data.lastSeason}`;
+      const n = { id: nid, type: 'announced', mediaId: data.mediaId, poster: data.poster,
+        title: data.title, icon: '🆕',
+        desc: `Temporada ${data.lastSeason} disponible en TMDB`,
+        date: today, seen: seenIds.has(nid) };
+      newNotifs.push(n); newHistoryItems.push(n);
+    }
+
+    // ── Show cancelled ──
+    if (data.status === 'Canceled' && prev.status && prev.status !== 'Canceled') {
+      const nid = `cancelled-${data.id}`;
+      const n = { id: nid, type: 'cancelled', mediaId: data.mediaId, poster: data.poster,
+        title: data.title, icon: '❌',
+        desc: `Cancelada según TMDB`,
+        date: today, seen: seenIds.has(nid) };
+      newNotifs.push(n); newHistoryItems.push(n);
+    }
+
+    // ── Show ended ──
+    if (data.status === 'Ended' && prev.status && prev.status !== 'Ended') {
+      const nid = `ended-${data.id}`;
+      const n = { id: nid, type: 'ended', mediaId: data.mediaId, poster: data.poster,
+        title: data.title, icon: '🏁',
+        desc: `Serie finalizada según TMDB`,
+        date: today, seen: seenIds.has(nid) };
+      newNotifs.push(n); newHistoryItems.push(n);
+    }
+
+    // ── In production, no next ep = still announced ──
+    if (data.inProd && !data.nextEp) {
+      const nid = `s2-${data.id}`;
+      newNotifs.push({ id: nid, type: 'announced', mediaId: data.mediaId, poster: data.poster,
+        title: data.title, icon: '📢',
+        desc: `Continuación confirmada · en producción`,
+        date: '', seen: seenIds.has(nid) });
+    }
+
+    // Save current state for next comparison
+    prevTmdbStates[data.id] = {
+      inProd: data.inProd,
+      status: data.status,
+      nextEpId: data.nextEp ? `${data.nextEp.season_number}-${data.nextEp.episode_number}` : null,
+      lastSeason: data.lastSeason,
+    };
   });
+
+  localStorage.setItem('ml_tmdb_states', JSON.stringify(prevTmdbStates));
 
   const prevTodayIds = new Set(notifications.filter(n=>n.type==='today').map(n=>n.id));
   notifications = newNotifs.sort((a,b) => {
-    const order = { today: 0, announced: 1, upcoming: 2 };
-    return (order[a.type]||9) - (order[b.type]||9) || a.date.localeCompare(b.date);
+    const order = { today: 0, cancelled: 1, ended: 1, announced: 2, upcoming: 3 };
+    return (order[a.type]||9) - (order[b.type]||9) || (a.date||'').localeCompare(b.date||'');
   });
   localStorage.setItem('ml_notifs', JSON.stringify(notifications));
-  // Send browser notif for new today episodes
-  notifications.filter(n => n.type === 'today' && !prevTodayIds.has(n.id)).forEach(n => {
-    sendBrowserNotif('📺 ' + n.title, n.desc, n.poster);
+
+  // Save new items to history and send browser notifs
+  newHistoryItems.forEach(async n => {
+    await saveNotifToHistory(n);
+    if (!prevTodayIds.has(n.id)) {
+      sendBrowserNotif(n.icon + ' ' + n.title, n.desc, n.poster);
+    }
   });
 }
 
@@ -1027,33 +1137,52 @@ function buildCalendar() {
   calendarData.sort((a,b) => a.date.localeCompare(b.date));
 }
 
+let notifTab = 'new'; // 'new' | 'history'
+
 function renderNotifications() {
   const el = document.getElementById('notif-list');
   if (!el) return;
 
-  const today   = notifications.filter(n => n.type === 'today');
-  const announ  = notifications.filter(n => n.type === 'announced');
-  const upcoming= notifications.filter(n => n.type === 'upcoming');
+  // Tab bar
+  const tabBar = `<div class="notif-tabs">
+    <button class="notif-tab ${notifTab==='new'?'active':''}" onclick="setNotifTab('new')">Actuales</button>
+    <button class="notif-tab ${notifTab==='history'?'active':''}" onclick="setNotifTab('history')">
+      Historial <span class="notif-history-count">${notifHistory.length}</span>
+    </button>
+  </div>`;
 
-  if (notifications.length === 0) {
-    el.innerHTML = `<div class="notif-empty"><i class="ti ti-bell-off"></i>Sin notificaciones.<br><small>Añade series con TMDB para ver actualizaciones.</small></div>`;
+  if (notifTab === 'history') {
+    const hist = notifHistory.slice(0, 100);
+    const histHTML = hist.length === 0
+      ? `<div class="notif-empty"><i class="ti ti-history"></i>El historial está vacío.</div>`
+      : hist.map(n => notifItemHTML(n, true)).join('');
+    el.innerHTML = tabBar + histHTML;
     return;
   }
 
-  let html = '';
-  if (today.length) {
-    html += `<div class="notif-section-label">🟢 Hoy</div>`;
-    html += today.map(n => notifItemHTML(n)).join('');
+  // Current notifications
+  const today   = notifications.filter(n => n.type === 'today');
+  const changes = notifications.filter(n => ['announced','cancelled','ended'].includes(n.type));
+  const upcoming= notifications.filter(n => n.type === 'upcoming');
+
+  if (notifications.length === 0) {
+    el.innerHTML = tabBar + `<div class="notif-empty"><i class="ti ti-bell-off"></i>Sin notificaciones activas.<br><small>Añade series con TMDB para ver actualizaciones.</small></div>`;
+  } else {
+    let html = tabBar;
+    if (today.length) {
+      html += `<div class="notif-section-label">🟢 Hoy</div>`;
+      html += today.map(n => notifItemHTML(n)).join('');
+    }
+    if (changes.length) {
+      html += `<div class="notif-section-label">📢 Novedades TMDB</div>`;
+      html += changes.map(n => notifItemHTML(n)).join('');
+    }
+    if (upcoming.length) {
+      html += `<div class="notif-section-label">📅 Próximamente</div>`;
+      html += upcoming.map(n => notifItemHTML(n)).join('');
+    }
+    el.innerHTML = html;
   }
-  if (announ.length) {
-    html += `<div class="notif-section-label">📢 Anunciadas</div>`;
-    html += announ.map(n => notifItemHTML(n)).join('');
-  }
-  if (upcoming.length) {
-    html += `<div class="notif-section-label">📅 Próximamente</div>`;
-    html += upcoming.map(n => notifItemHTML(n)).join('');
-  }
-  el.innerHTML = html;
 
   // Mark all as seen
   notifications.forEach(n => n.seen = true);
@@ -1061,14 +1190,23 @@ function renderNotifications() {
   updateNotifDot();
 }
 
-function notifItemHTML(n) {
-  const cls = n.type === 'today' ? 'notif-today' : n.type === 'announced' ? 'notif-announced' : '';
-  const poster = n.poster ? `<img src="${n.poster}" alt="">` : `<div class="notif-poster-ph">📺</div>`;
+function setNotifTab(tab) {
+  notifTab = tab;
+  if (tab === 'history') markHistorySeen();
+  renderNotifications();
+}
+
+function notifItemHTML(n, showDate=false) {
+  const clsMap = { today:'notif-today', announced:'notif-announced', cancelled:'notif-cancelled', ended:'notif-ended' };
+  const cls = clsMap[n.type] || '';
+  const poster = n.poster ? `<img src="${n.poster}" alt="">` : `<div class="notif-poster-ph">${n.icon||'📺'}</div>`;
+  const dateStr = showDate && n.createdAt ? `<div class="notif-time">${new Date(n.createdAt).toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'})}</div>` : '';
   return `<div class="notif-item ${cls}" onclick="closePanel();openDetail('${n.mediaId}')">
     <div class="notif-poster">${poster}</div>
     <div class="notif-content">
-      <div class="notif-title">${n.title}</div>
+      <div class="notif-title">${n.icon ? n.icon+' ' : ''}${n.title}</div>
       <div class="notif-desc">${n.desc}</div>
+      ${dateStr}
     </div>
   </div>`;
 }
@@ -1111,8 +1249,11 @@ function renderCalendar() {
 }
 
 function updateNotifDot() {
-  const dot  = document.getElementById('notif-dot');
-  const unseen = notifications.filter(n => !n.seen && n.type === 'today');
+  const dot = document.getElementById('notif-dot');
+  const unseen = [
+    ...notifications.filter(n => !n.seen),
+    ...notifHistory.filter(n => !n.seen)
+  ];
   if (dot) dot.style.display = unseen.length > 0 ? 'block' : 'none';
 }
 

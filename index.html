@@ -252,12 +252,12 @@
 
 <!-- STATS MODAL -->
 <div id="stats-modal" class="overlay" onclick="closeStatsBg(event)">
-  <div class="modal" style="max-width:640px">
+  <div class="modal" style="max-width:680px;max-height:85vh">
     <div class="modal-header">
       <h2>📊 Mis estadísticas</h2>
       <button class="icon-btn" onclick="closeStats()"><i class="ti ti-x"></i></button>
     </div>
-    <div class="form-body" style="padding-bottom:1rem">
+    <div style="overflow-y:auto;flex:1;padding:0 1.25rem 1.25rem">
       <div id="stats-content"></div>
     </div>
   </div>

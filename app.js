@@ -793,16 +793,16 @@ function renderCard(m) {
 
   const quickEp = m.type !== 'movie' && qSeason ? `
     <div class="card-quick-ep">
-      <button class="qbtn" onclick="event.stopPropagation();quickEp('${m.id}',${qSeasonIdx},-1)">−</button>
+      <button class="qbtn" onclick="quickEp('${m.id}',${qSeasonIdx},-1,event)">−</button>
       <span class="qep-label">T${(qSeason.number||qSeasonIdx+1)} · ${qEpSeen}/${qEpTotal||'?'}</span>
-      <button class="qbtn" onclick="event.stopPropagation();quickEp('${m.id}',${qSeasonIdx},1)">+</button>
+      <button class="qbtn" onclick="quickEp('${m.id}',${qSeasonIdx},1,event)">+</button>
     </div>` : '';
 
   const quickRating = `
     <div class="qrating">
-      <button class="qrating-btn" onclick="event.stopPropagation();quickRating('${m.id}',-0.5)">−</button>
+      <button class="qrating-btn" onclick="quickRating('${m.id}',-0.5,event)">−</button>
       <span class="qrating-val">${qRating||'—'}</span>
-      <button class="qrating-btn" onclick="event.stopPropagation();quickRating('${m.id}',0.5)">+</button>
+      <button class="qrating-btn" onclick="quickRating('${m.id}',0.5,event)">+</button>
     </div>`;
 
   return `<div class="card" onclick="openDetail('${m.id}')" role="button" tabindex="0" aria-label="${m.title}">
@@ -840,7 +840,8 @@ function getActiveSeason(m) {
   return { idx: seasons.length-1, season: seasons[seasons.length-1] };
 }
 
-async function quickEp(id, seasonIdx, delta) {
+async function quickEp(id, seasonIdx, delta, event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
   const m = mediaList.find(x => x.id === id);
   if (!m || !m.seasons?.[seasonIdx]) return;
   const s = m.seasons[seasonIdx];
@@ -862,7 +863,8 @@ async function quickEp(id, seasonIdx, delta) {
   await saveToSupabase(m);
 }
 
-async function quickRating(id, delta) {
+async function quickRating(id, delta, event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
   const m = mediaList.find(x => x.id === id);
   if (!m) return;
   const current = parseFloat(m.rating) || 0;
@@ -1216,35 +1218,50 @@ function renderCalendar() {
   if (!el) return;
 
   if (calendarData.length === 0) {
-    el.innerHTML = `<div class="notif-empty"><i class="ti ti-calendar-off"></i>Sin episodios próximos.<br><small>Solo aparecen series marcadas como "Viendo" con TMDB conectado.</small></div>`;
+    el.innerHTML = `<div class="notif-empty"><i class="ti ti-calendar-off"></i>Sin episodios próximos.<br><small>Solo aparecen series en "Viendo" con TMDB conectado.</small></div>`;
     return;
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const grouped  = {};
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  // Group by date
+  const grouped = {};
   calendarData.forEach(item => {
     if (!grouped[item.date]) grouped[item.date] = [];
     grouped[item.date].push(item);
   });
 
+  // Build week columns like Steam — show next 7 days
+  const days = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(); d.setDate(d.getDate() + i);
+    const ds = d.toISOString().slice(0,10);
+    if (grouped[ds]) days.push({ date: ds, items: grouped[ds], d });
+  }
+
+  const DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
   let html = '';
-  Object.entries(grouped).forEach(([date, items]) => {
+  days.forEach(({ date, items, d }) => {
     const isToday = date === todayStr;
-    const label   = isToday ? '🟢 Hoy' : formatDate(date);
+    const dayLabel = isToday ? '🟢 HOY' : `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`.toUpperCase();
     html += `<div class="cal-day">
-      <div class="cal-day-label ${isToday?'today':''}">${label}</div>
+      <div class="cal-day-label ${isToday?'today':''}">${dayLabel}</div>
       ${items.map(item => {
-        const poster = item.poster ? `<img src="${item.poster}" alt="">` : '';
+        const poster = item.poster ? `<img src="${item.poster}" alt="">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px">📺</div>`;
         return `<div class="cal-item ${isToday?'today-ep':''}" onclick="closePanel();openDetail('${item.mediaId}')">
           <div class="cal-poster">${poster}</div>
           <div class="cal-info">
             <div class="cal-title">${item.title}</div>
-            <div class="cal-ep">T${item.season} · Ep ${item.episode}${item.epName?' — '+item.epName:''}</div>
+            <div class="cal-ep">T${item.season} · Ep ${item.episode}${item.epName?' — <em>'+item.epName+'</em>':''}</div>
           </div>
+          ${isToday ? '<span style="font-size:10px;background:var(--success);color:white;border-radius:4px;padding:2px 6px;flex-shrink:0">HOY</span>' : ''}
         </div>`;
       }).join('')}
     </div>`;
   });
+
   el.innerHTML = html;
 }
 

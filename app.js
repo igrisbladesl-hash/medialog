@@ -415,21 +415,44 @@ async function searchTMDB() {
   const btn = document.getElementById('tmdb-btn');
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Buscando...';
   document.getElementById('tmdb-results').innerHTML = '';
-  const type = document.getElementById('f-type').value;
-  const mediaType = type === 'movie' ? 'movie' : 'tv';
   try {
-    const res  = await fetch(`https://api.themoviedb.org/3/search/${mediaType}?api_key=${settings.apiKey}&query=${encodeURIComponent(query)}&language=${settings.lang}`);
+    // Use /search/multi to find everything regardless of type
+    const res  = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=${settings.apiKey}&query=${encodeURIComponent(query)}&language=${settings.lang}`);
     const data = await res.json();
-    if (data.results?.length > 0) {
-      document.getElementById('tmdb-results').innerHTML = data.results.slice(0,12).map(r => {
-        const title = r.title||r.name||'';
-        const year  = (r.release_date||r.first_air_date||'').slice(0,4);
-        const img   = r.poster_path ? `<img src="${TMDB_IMG}${r.poster_path}" alt="${title}" loading="lazy">` : `<div class="tmdb-result-no-img">${TYPE_EMOJI[type]}</div>`;
-        const d = JSON.stringify({id:r.id, title, year, poster:r.poster_path?`${TMDB_IMG}${r.poster_path}`:'', backdrop:r.backdrop_path?`${TMDB_BIG}${r.backdrop_path}`:'', mediaType}).replace(/"/g,'&quot;');
-        return `<div class="tmdb-result" onclick="selectTMDB(${d}, this)">${img}<div class="tmdb-result-title">${title} ${year?`(${year})`:''}</div></div>`;
+    const results = (data.results||[]).filter(r => r.media_type === 'tv' || r.media_type === 'movie').slice(0, 12);
+    if (results.length > 0) {
+      document.getElementById('tmdb-results').innerHTML = results.map(r => {
+        const title     = r.title||r.name||'';
+        const year      = (r.release_date||r.first_air_date||'').slice(0,4);
+        const mediaType = r.media_type; // 'tv' or 'movie'
+        const typeIcon  = mediaType === 'movie' ? '🎬' : '📺';
+        const img = r.poster_path
+          ? `<img src="${TMDB_IMG}${r.poster_path}" alt="${title}" loading="lazy">`
+          : `<div class="tmdb-result-no-img">${typeIcon}</div>`;
+        const d = JSON.stringify({
+          id: r.id, title, year,
+          poster:   r.poster_path   ? `${TMDB_IMG}${r.poster_path}`  : '',
+          backdrop: r.backdrop_path ? `${TMDB_BIG}${r.backdrop_path}` : '',
+          mediaType
+        }).replace(/"/g,'&quot;');
+        return `<div class="tmdb-result" onclick="selectTMDB(${d}, this)">
+          ${img}
+          <div class="tmdb-result-title">${title} ${year?`(${year})`:''}</div>
+          <div style="font-size:9px;text-align:center;color:var(--text-muted);padding:0 4px 3px">${mediaType==='movie'?'🎬 Película':'📺 Serie/Anime'}</div>
+        </div>`;
       }).join('');
+
+      // Auto-switch type selector based on first result
+      const first = results[0];
+      if (first.media_type === 'movie') {
+        document.getElementById('f-type').value = 'movie';
+      } else {
+        // Keep current type (series or anime) — selectTMDB will auto-detect anime
+      }
+      updateModalFields();
+
     } else {
-      document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:8px 0;">Sin resultados.</p>';
+      document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:8px 0;">Sin resultados. Prueba con el título en inglés.</p>';
     }
   } catch(e) {
     document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--danger);padding:8px 0;">Error. Revisa tu API key.</p>';
@@ -444,10 +467,20 @@ async function selectTMDB(data, el) {
   document.getElementById('f-year').value    = data.year;
   document.getElementById('f-tmdb-id').value = data.id;
   document.getElementById('f-tmdb-type').value = data.mediaType;
-  // For movies, set poster immediately from search result
-  if (data.mediaType === 'movie' && data.poster) {
-    document.getElementById('f-movie-poster').value = data.poster;
-    updateMiniPoster('movie', data.poster);
+  // Auto-switch type based on TMDB media_type
+  if (data.mediaType === 'movie') {
+    document.getElementById('f-type').value = 'movie';
+    updateModalFields();
+    if (data.poster) {
+      document.getElementById('f-movie-poster').value = data.poster;
+      updateMiniPoster('movie', data.poster);
+    }
+  } else {
+    // If current type is movie, switch to series (anime detection happens later via genre)
+    if (document.getElementById('f-type').value === 'movie') {
+      document.getElementById('f-type').value = 'series';
+      updateModalFields();
+    }
   }
   if (!settings.apiKey) return;
   try {

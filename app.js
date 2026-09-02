@@ -193,8 +193,10 @@ function getFiltered() {
     list = list.filter(m => m.title.toLowerCase().includes(q) || (m.genre||'').toLowerCase().includes(q));
   }
   const sort = document.getElementById('sort-select')?.value ?? 'recent';
+  if (sort === 'recent') list.sort((a,b) => (b.addedAt||b.updatedAt||0) - (a.addedAt||a.updatedAt||0));
   if (sort === 'title')  list.sort((a,b) => a.title.localeCompare(b.title));
   if (sort === 'rating') list.sort((a,b) => (parseFloat(b.rating)||0) - (parseFloat(a.rating)||0));
+  if (sort === 'year')   list.sort((a,b) => (parseInt(b.year)||0) - (parseInt(a.year)||0));
   return list;
 }
 
@@ -276,7 +278,10 @@ function addSeasonField(data) {
       <div class="field"><label>Total episodios</label><input type="number" id="s${idx}-total" min="0" value="${s.epTotal||''}"></div>
     </div>
     <div class="field"><label>Nota personal</label><textarea id="s${idx}-note" rows="2" placeholder="Qué te pareció esta temporada...">${s.note||''}</textarea></div>
-    <div class="field"><label>Puntuación (0–10)</label><input type="number" id="s${idx}-rating" min="0" max="10" step="0.5" value="${s.rating||''}"></div>
+    <div class="row-2">
+      <div class="field"><label>Puntuación (0–10)</label><input type="number" id="s${idx}-rating" min="0" max="10" step="0.5" value="${s.rating||''}"></div>
+      <div class="field"><label>Día emisión <span style="font-size:10px;color:var(--text-muted)">(corregir si TMDB falla)</span></label><input type="text" id="s${idx}-airday" placeholder="Lunes, Jueves..." value="${s.airDay||''}"></div>
+    </div>
     <input type="hidden" id="s${idx}-tmdbSeason" value="${s.tmdbSeason||idx}">
   `;
   document.getElementById('seasons-list').appendChild(div);
@@ -323,6 +328,7 @@ function getSeasonData() {
       epTotal:    parseInt(document.getElementById(`s${idx}-total`)?.value) || 0,
       note:       document.getElementById(`s${idx}-note`)?.value.trim() || '',
       rating:     document.getElementById(`s${idx}-rating`)?.value || '',
+      airDay:     document.getElementById(`s${idx}-airday`)?.value.trim() || '',
       tmdbSeason: parseInt(document.getElementById(`s${idx}-tmdbSeason`)?.value) || i+1,
     };
   });
@@ -394,6 +400,7 @@ async function saveMedia() {
     isAnimeMovie: type==='movie' ? document.getElementById('f-is-anime-movie').checked : false,
     seasons:      type==='movie' ? [] : getSeasonData(),
     updatedAt:    Date.now(),
+    addedAt:      editingId ? (mediaList.find(x=>x.id===editingId)?.addedAt || Date.now()) : Date.now(),
   };
   if (editingId) {
     const idx = mediaList.findIndex(x=>x.id===editingId);
@@ -707,6 +714,167 @@ document.head.appendChild(style);
 loadFromSupabase();
 loadNotifHistory();
 
+// ── GLOBAL TMDB REFRESH ────────────────────────────────────────────────────
+let lastRefreshChanges = []; // store detected changes from last refresh
+
+async function globalTMDBRefresh() {
+  if (!settings.apiKey) {
+    alert('Necesitas la API key de TMDB en Ajustes.');
+    return;
+  }
+
+  // Animate refresh icon
+  const icon = document.getElementById('global-refresh-icon');
+  const btn  = document.getElementById('global-refresh-btn');
+  if (icon) icon.style.animation = 'spin 1s linear infinite';
+  if (btn)  btn.disabled = true;
+
+  // Show panel immediately with loading state
+  openUpdatesPanel(true);
+
+  // Save snapshot of current state before refresh
+  const snapshot = {};
+  mediaList.forEach(m => {
+    if (m.tmdbId) snapshot[m.tmdbId] = {
+      continuation: m.continuation,
+      lastSeason: tmdbCache[m.tmdbId]?.lastSeason || null,
+      status: tmdbCache[m.tmdbId]?.status || null,
+      nextEpId: tmdbCache[m.tmdbId]?.nextEp ? `${tmdbCache[m.tmdbId].nextEp.season_number}-${tmdbCache[m.tmdbId].nextEp.episode_number}` : null,
+    };
+  });
+
+  // Force clear all cache to get fresh data
+  tmdbCache = {};
+  const watching = mediaList.filter(m => m.tmdbId && m.tmdbType === 'tv' && m.status !== 'dropped' && m.status !== 'pending');
+  for (const m of watching) await fetchTMDBLive(m);
+
+  // Detect changes vs snapshot
+  lastRefreshChanges = [];
+  const today = new Date().toISOString().slice(0,10);
+
+  watching.forEach(m => {
+    const prev = snapshot[m.tmdbId] || {};
+    const curr = tmdbCache[m.tmdbId];
+    if (!curr) return;
+
+    const poster = getCardPoster(m);
+    const currNextId = curr.nextEp ? `${curr.nextEp.season_number}-${curr.nextEp.episode_number}` : null;
+
+    // Nueva temporada confirmada
+    if (!prev.nextEpId && currNextId) {
+      lastRefreshChanges.push({ type: 'new_ep_announced', icon: '📢', title: m.title, poster,
+        desc: `T${curr.nextEp.season_number} anunciada — primer ep el ${formatDate(curr.nextEp.air_date)}`,
+        mediaId: m.id, isNew: true });
+    }
+    // Más temporadas en TMDB que antes
+    if (prev.lastSeason && curr.lastSeason && curr.lastSeason > prev.lastSeason) {
+      lastRefreshChanges.push({ type: 'new_season', icon: '🆕', title: m.title, poster,
+        desc: `Temporada ${curr.lastSeason} registrada en TMDB (antes: ${prev.lastSeason})`,
+        mediaId: m.id, isNew: true });
+    }
+    // Cancelada
+    if (curr.status === 'Canceled' && prev.status && prev.status !== 'Canceled') {
+      lastRefreshChanges.push({ type: 'cancelled', icon: '❌', title: m.title, poster,
+        desc: `Cancelada según TMDB`, mediaId: m.id, isNew: true });
+    }
+    // Finalizada
+    if (curr.status === 'Ended' && prev.status && prev.status !== 'Ended') {
+      lastRefreshChanges.push({ type: 'ended', icon: '🏁', title: m.title, poster,
+        desc: `Serie finalizada según TMDB`, mediaId: m.id, isNew: true });
+    }
+    // Episodio hoy
+    if (curr.nextEp?.air_date === today) {
+      lastRefreshChanges.push({ type: 'today', icon: '📺', title: m.title, poster,
+        desc: `Sale hoy T${curr.nextEp.season_number} Ep ${curr.nextEp.episode_number}`,
+        mediaId: m.id, isNew: false });
+    }
+    // Sin cambios — still show it
+    if (lastRefreshChanges.findIndex(c=>c.mediaId===m.id) === -1) {
+      lastRefreshChanges.push({ type: 'ok', icon: '✓', title: m.title, poster,
+        desc: curr.nextEp
+          ? `Sin cambios · próx ep T${curr.nextEp.season_number}×${curr.nextEp.episode_number} el ${formatDate(curr.nextEp.air_date)}`
+          : curr.status === 'Ended' ? 'Finalizada' : curr.status === 'Canceled' ? 'Cancelada' : 'Sin novedades',
+        mediaId: m.id, isNew: false });
+    }
+  });
+
+  // Sort: new changes first, then ok
+  lastRefreshChanges.sort((a,b) => {
+    const order = { today:0, new_season:1, new_ep_announced:2, cancelled:3, ended:4, ok:5 };
+    return (order[a.type]||9) - (order[b.type]||9);
+  });
+
+  buildNotifications();
+  buildCalendar();
+  updateNotifDot();
+
+  // Show green dot on refresh button if there are new things
+  const dot = document.getElementById('refresh-dot');
+  if (dot) dot.style.display = lastRefreshChanges.some(c=>c.isNew) ? 'block' : 'none';
+
+  if (icon) icon.style.animation = '';
+  if (btn)  btn.disabled = false;
+
+  renderUpdatesPanel();
+}
+
+function openUpdatesPanel(loading) {
+  // Close other panels
+  document.getElementById('notif-panel').style.display = 'none';
+  document.getElementById('calendar-panel').style.display = 'none';
+  panelOpen = 'updates';
+  document.getElementById('updates-panel').style.display = 'flex';
+  if (loading) {
+    document.getElementById('updates-list').innerHTML = '<div class="panel-loading"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Consultando TMDB...</div>';
+  } else {
+    renderUpdatesPanel();
+  }
+  // Hide refresh dot when panel opens
+  const dot = document.getElementById('refresh-dot');
+  if (dot) dot.style.display = 'none';
+}
+
+function closeUpdatesPanel() {
+  document.getElementById('updates-panel').style.display = 'none';
+  panelOpen = null;
+}
+
+function renderUpdatesPanel() {
+  const el = document.getElementById('updates-list');
+  if (!el) return;
+  if (lastRefreshChanges.length === 0) {
+    el.innerHTML = '<div class="notif-empty"><i class="ti ti-refresh"></i>Pulsa ↺ para comprobar actualizaciones de TMDB.</div>';
+    return;
+  }
+
+  const newItems = lastRefreshChanges.filter(c => c.isNew);
+  const okItems  = lastRefreshChanges.filter(c => !c.isNew);
+
+  let html = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Última comprobación: ${new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}</div>`;
+
+  if (newItems.length > 0) {
+    html += `<div class="notif-section-label">🔔 Novedades (${newItems.length})</div>`;
+    html += newItems.map(c => updateItemHTML(c)).join('');
+  }
+
+  html += `<div class="notif-section-label" style="margin-top:8px">✓ Sin cambios (${okItems.length})</div>`;
+  html += okItems.map(c => updateItemHTML(c)).join('');
+
+  el.innerHTML = html;
+}
+
+function updateItemHTML(c) {
+  const poster = c.poster ? `<img src="${c.poster}" alt="">` : `<div class="notif-poster-ph">${c.icon}</div>`;
+  const bgCls = c.isNew ? (c.type === 'today' ? 'notif-today' : c.type === 'cancelled' ? 'notif-cancelled' : c.type === 'ended' ? 'notif-ended' : 'notif-announced') : '';
+  return `<div class="notif-item ${bgCls}" onclick="closeUpdatesPanel();openDetail('${c.mediaId}')">
+    <div class="notif-poster">${poster}</div>
+    <div class="notif-content">
+      <div class="notif-title">${c.icon} ${c.title}</div>
+      <div class="notif-desc">${c.desc}</div>
+    </div>
+  </div>`;
+}
+
 // ── MOBILE NAV ─────────────────────────────────────────────────────────────
 function mobileNav(section, el) {
   document.querySelectorAll('.mobile-nav-item').forEach(e => e.classList.remove('active'));
@@ -919,6 +1087,7 @@ let panelOpen     = null; // 'notif' | 'calendar' | null
 function toggleNotifications() {
   if (panelOpen === 'notif') { closePanel(); return; }
   closePanel();
+  document.getElementById('updates-panel').style.display = 'none';
   panelOpen = 'notif';
   document.getElementById('notif-panel').style.display = 'flex';
   renderNotifications();
@@ -928,6 +1097,7 @@ function toggleNotifications() {
 function toggleCalendar() {
   if (panelOpen === 'calendar') { closePanel(); return; }
   closePanel();
+  document.getElementById('updates-panel').style.display = 'none';
   panelOpen = 'calendar';
   document.getElementById('calendar-panel').style.display = 'flex';
   renderCalendar();
@@ -937,6 +1107,7 @@ function toggleCalendar() {
 function closePanel() {
   document.getElementById('notif-panel').style.display = 'none';
   document.getElementById('calendar-panel').style.display = 'none';
+  document.getElementById('updates-panel').style.display = 'none';
   panelOpen = null;
 }
 
@@ -1157,6 +1328,9 @@ function buildCalendar() {
 
   Object.values(tmdbCache).forEach(data => {
     if (data.nextEp && data.nextEp.air_date >= todayStr && data.nextEp.air_date <= in30) {
+      // Check if user has a custom airDay for this season
+      const entry = mediaList.find(x=>x.id===data.mediaId);
+      const seasonObj = entry?.seasons?.find(s=>s.tmdbSeason===data.nextEp.season_number || s.number===data.nextEp.season_number);
       calendarData.push({
         date: data.nextEp.air_date,
         mediaId: data.mediaId,
@@ -1165,6 +1339,7 @@ function buildCalendar() {
         season: data.nextEp.season_number,
         episode: data.nextEp.episode_number,
         epName: data.nextEp.name || '',
+        airDay: seasonObj?.airDay || '',
       });
     }
   });
@@ -1288,6 +1463,7 @@ function renderCalendar() {
           <div class="cal-info">
             <div class="cal-title">${item.title}</div>
             <div class="cal-ep">T${item.season} · Ep ${item.episode}${item.epName?' — <em>'+item.epName+'</em>':''}</div>
+            ${item.airDay ? `<div class="cal-time">📅 ${item.airDay}</div>` : ''}
           </div>
           ${isToday ? '<span style="font-size:10px;background:var(--success);color:white;border-radius:4px;padding:2px 6px;flex-shrink:0">HOY</span>' : ''}
         </div>`;

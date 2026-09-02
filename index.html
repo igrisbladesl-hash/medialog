@@ -51,11 +51,16 @@
           <option value="recent">Recientes</option>
           <option value="title">A–Z</option>
           <option value="rating">Puntuación</option>
+          <option value="year">Año</option>
         </select>
         <button class="icon-btn" onclick="toggleCalendar()" title="Próximos episodios" style="position:relative"><i class="ti ti-calendar"></i></button>
         <button class="icon-btn" onclick="toggleNotifications()" title="Notificaciones" style="position:relative">
           <i class="ti ti-bell"></i>
           <span class="notif-dot" id="notif-dot" style="display:none"></span>
+        </button>
+        <button class="icon-btn" onclick="globalTMDBRefresh()" id="global-refresh-btn" title="Actualizar todo desde TMDB" style="position:relative">
+          <i class="ti ti-refresh" id="global-refresh-icon"></i>
+          <span class="notif-dot" id="refresh-dot" style="display:none;background:var(--success)"></span>
         </button>
         <div id="sync-indicator" style="display:flex;align-items:center" title="Estado de sincronización"><i class="ti ti-cloud" style="color:var(--text-muted);font-size:16px"></i></div>
         <button class="btn-add" onclick="openModal()"><i class="ti ti-plus"></i> Añadir</button>
@@ -72,6 +77,20 @@
         </div>
       </div>
       <div id="notif-list" class="side-panel-body"><div class="panel-loading"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Cargando...</div></div>
+    </div>
+
+    <!-- UPDATES PANEL -->
+    <div id="updates-panel" class="side-panel" style="display:none">
+      <div class="side-panel-header">
+        <span>Actualizaciones TMDB</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" onclick="globalTMDBRefresh()"><i class="ti ti-refresh"></i></button>
+          <button class="icon-btn-sm" onclick="closeUpdatesPanel()"><i class="ti ti-x"></i></button>
+        </div>
+      </div>
+      <div id="updates-list" class="side-panel-body">
+        <div class="notif-empty"><i class="ti ti-refresh"></i>Pulsa el botón para comprobar actualizaciones.</div>
+      </div>
     </div>
 
     <!-- CALENDAR PANEL -->

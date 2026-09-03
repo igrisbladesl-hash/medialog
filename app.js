@@ -732,16 +732,8 @@ async function globalTMDBRefresh() {
   // Show panel immediately with loading state
   openUpdatesPanel(true);
 
-  // Save snapshot of current state before refresh
-  const snapshot = {};
-  mediaList.forEach(m => {
-    if (m.tmdbId) snapshot[m.tmdbId] = {
-      continuation: m.continuation,
-      lastSeason: tmdbCache[m.tmdbId]?.lastSeason || null,
-      status: tmdbCache[m.tmdbId]?.status || null,
-      nextEpId: tmdbCache[m.tmdbId]?.nextEp ? `${tmdbCache[m.tmdbId].nextEp.season_number}-${tmdbCache[m.tmdbId].nextEp.episode_number}` : null,
-    };
-  });
+  // Load last known snapshot (persisted from previous refresh)
+  const snapshot = JSON.parse(localStorage.getItem('ml_tmdb_snapshot') || '{}');
 
   // Force clear all cache to get fresh data
   tmdbCache = {};
@@ -759,26 +751,27 @@ async function globalTMDBRefresh() {
 
     const poster = getCardPoster(m);
     const currNextId = curr.nextEp ? `${curr.nextEp.season_number}-${curr.nextEp.episode_number}` : null;
+    const prevKnown = !!prev.status; // only compare if we had previous data
 
     // Nueva temporada confirmada
-    if (!prev.nextEpId && currNextId) {
+    if (prevKnown && !prev.nextEpId && currNextId) {
       lastRefreshChanges.push({ type: 'new_ep_announced', icon: '📢', title: m.title, poster,
         desc: `T${curr.nextEp.season_number} anunciada — primer ep el ${formatDate(curr.nextEp.air_date)}`,
         mediaId: m.id, isNew: true });
     }
     // Más temporadas en TMDB que antes
-    if (prev.lastSeason && curr.lastSeason && curr.lastSeason > prev.lastSeason) {
+    if (prevKnown && prev.lastSeason && curr.lastSeason && curr.lastSeason > prev.lastSeason) {
       lastRefreshChanges.push({ type: 'new_season', icon: '🆕', title: m.title, poster,
         desc: `Temporada ${curr.lastSeason} registrada en TMDB (antes: ${prev.lastSeason})`,
         mediaId: m.id, isNew: true });
     }
     // Cancelada
-    if (curr.status === 'Canceled' && prev.status && prev.status !== 'Canceled') {
+    if (prevKnown && curr.status === 'Canceled' && prev.status !== 'Canceled') {
       lastRefreshChanges.push({ type: 'cancelled', icon: '❌', title: m.title, poster,
         desc: `Cancelada según TMDB`, mediaId: m.id, isNew: true });
     }
     // Finalizada
-    if (curr.status === 'Ended' && prev.status && prev.status !== 'Ended') {
+    if (prevKnown && curr.status === 'Ended' && prev.status !== 'Ended') {
       lastRefreshChanges.push({ type: 'ended', icon: '🏁', title: m.title, poster,
         desc: `Serie finalizada según TMDB`, mediaId: m.id, isNew: true });
     }
@@ -803,6 +796,19 @@ async function globalTMDBRefresh() {
     const order = { today:0, new_season:1, new_ep_announced:2, cancelled:3, ended:4, ok:5 };
     return (order[a.type]||9) - (order[b.type]||9);
   });
+
+  // Save new snapshot for next comparison
+  const newSnapshot = {};
+  watching.forEach(m => {
+    const c = tmdbCache[m.tmdbId];
+    if (c) newSnapshot[m.tmdbId] = {
+      lastSeason: c.lastSeason || null,
+      status: c.status || null,
+      nextEpId: c.nextEp ? `${c.nextEp.season_number}-${c.nextEp.episode_number}` : null,
+      inProd: c.inProd || false,
+    };
+  });
+  localStorage.setItem('ml_tmdb_snapshot', JSON.stringify(newSnapshot));
 
   buildNotifications();
   buildCalendar();
@@ -1320,17 +1326,37 @@ function buildNotifications() {
   });
 }
 
+// Helper: get next occurrence of a weekday name (es/en)
+function nextWeekdayDate(dayName) {
+  const days = {
+    'lunes':1,'monday':1,'martes':2,'tuesday':2,'miércoles':3,'miercoles':3,'wednesday':3,
+    'jueves':4,'thursday':4,'viernes':5,'friday':5,'sábado':6,'sabado':6,'saturday':6,'domingo':0,'sunday':0
+  };
+  const target = days[dayName.toLowerCase().trim()];
+  if (target === undefined) return null;
+  const d = new Date();
+  const current = d.getDay();
+  let diff = target - current;
+  if (diff < 0) diff += 7;
+  if (diff === 0) diff = 7; // next week if today
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0,10);
+}
+
 function buildCalendar() {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const in30 = new Date(today.getTime() + 30*24*60*60*1000).toISOString().slice(0,10);
   calendarData = [];
+  const addedIds = new Set(); // avoid duplicates
 
+  // ── From TMDB cache ──
   Object.values(tmdbCache).forEach(data => {
     if (data.nextEp && data.nextEp.air_date >= todayStr && data.nextEp.air_date <= in30) {
-      // Check if user has a custom airDay for this season
       const entry = mediaList.find(x=>x.id===data.mediaId);
       const seasonObj = entry?.seasons?.find(s=>s.tmdbSeason===data.nextEp.season_number || s.number===data.nextEp.season_number);
+      const key = data.mediaId + '-' + data.nextEp.season_number;
+      addedIds.add(key);
       calendarData.push({
         date: data.nextEp.air_date,
         mediaId: data.mediaId,
@@ -1340,8 +1366,36 @@ function buildCalendar() {
         episode: data.nextEp.episode_number,
         epName: data.nextEp.name || '',
         airDay: seasonObj?.airDay || '',
+        source: 'tmdb',
       });
     }
+  });
+
+  // ── From manual airDay (for series TMDB doesn't have a date for) ──
+  mediaList.filter(m => m.status === 'watching' && m.type !== 'movie').forEach(m => {
+    (m.seasons||[]).forEach((s, si) => {
+      if (!s.airDay) return;
+      const epSeen  = parseInt(s.epSeen)||0;
+      const epTotal = parseInt(s.epTotal)||0;
+      if (epTotal > 0 && epSeen >= epTotal) return; // season complete, skip
+      const key = m.id + '-' + (s.number||si+1);
+      if (addedIds.has(key)) return; // TMDB already added this
+      // Generate next occurrence of this weekday
+      const nextDate = nextWeekdayDate(s.airDay);
+      if (!nextDate || nextDate > in30) return;
+      const poster = getCardPoster(m);
+      calendarData.push({
+        date: nextDate,
+        mediaId: m.id,
+        poster,
+        title: m.title,
+        season: s.number||si+1,
+        episode: epSeen + 1,
+        epName: '',
+        airDay: s.airDay,
+        source: 'manual',
+      });
+    });
   });
 
   calendarData.sort((a,b) => a.date.localeCompare(b.date));
@@ -1463,7 +1517,7 @@ function renderCalendar() {
           <div class="cal-info">
             <div class="cal-title">${item.title}</div>
             <div class="cal-ep">T${item.season} · Ep ${item.episode}${item.epName?' — <em>'+item.epName+'</em>':''}</div>
-            ${item.airDay ? `<div class="cal-time">📅 ${item.airDay}</div>` : ''}
+            <div class="cal-time">${item.airDay ? `📅 ${item.airDay}` : ''}${item.source==='manual' ? ' <span style="font-size:9px;background:var(--surface-3);border:1px solid var(--border);border-radius:3px;padding:1px 4px;color:var(--text-muted)">manual</span>' : ''}</div>
           </div>
           ${isToday ? '<span style="font-size:10px;background:var(--success);color:white;border-radius:4px;padding:2px 6px;flex-shrink:0">HOY</span>' : ''}
         </div>`;

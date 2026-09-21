@@ -24,7 +24,7 @@ const TMDB_BIG   = 'https://image.tmdb.org/t/p/w780';
 const TYPE_EMOJI = { series: '📺', anime: '⛩️', movie: '🎬' };
 const TYPE_LABEL = { series: 'Serie', anime: 'Anime', movie: 'Película' };
 const STATUS_LABEL = { watching: 'Viendo', completed: 'Completada', pending: 'Pendiente', paused: 'En pausa', dropped: 'Abandonada' };
-const CONT_LABEL = { unknown: '', no: 'No continúa', rumor: 'Continuación rumor', confirmed: 'Continuación confirmada', airing: 'Ya en emisión' };
+const CONT_LABEL = { unknown: '', no: 'Sin noticias', rumor: 'Rumor', confirmed: 'Confirmada', airing: 'Ya en emisión', cancelled: 'Cancelada definitivamente' };
 
 // ── SUPABASE SYNC ──────────────────────────────────────────────────────────
 function recalcRating(m) {
@@ -204,9 +204,9 @@ function statusTag(s) {
   return `<span class="tag ${cls[s]??'tag-pending'}">${STATUS_LABEL[s]??s}</span>`;
 }
 function contTag(c) {
-  if (!c || c === 'unknown') return '';
-  const cls = { no:'tag-cont-no', rumor:'tag-cont-rumor', confirmed:'tag-cont-confirmed', airing:'tag-cont-airing' };
-  return `<span class="tag ${cls[c]??''}">${CONT_LABEL[c]}</span>`;
+  if (!c || c === 'unknown' || c === 'no') return '';
+  const cls = { rumor:'tag-cont-rumor', confirmed:'tag-cont-confirmed', airing:'tag-cont-airing', cancelled:'tag-cont-cancelled' };
+  return cls[c] ? `<span class="tag ${cls[c]}">${CONT_LABEL[c]}</span>` : '';
 }
 
 // ── CARD ───────────────────────────────────────────────────────────────────
@@ -1158,7 +1158,9 @@ async function fetchTMDBLive(m) {
       let newCont = entry.continuation;
       // Only update to 'no' if TMDB explicitly says ended/canceled AND
       // current status is not a stronger confirmation
-      if ((det.status === 'Ended' || det.status === 'Canceled') && entry.continuation !== 'confirmed' && entry.continuation !== 'airing') {
+      if (det.status === 'Canceled' && entry.continuation !== 'confirmed' && entry.continuation !== 'airing' && entry.continuation !== 'rumor') {
+        newCont = 'cancelled';
+      } else if (det.status === 'Ended' && entry.continuation !== 'confirmed' && entry.continuation !== 'airing' && entry.continuation !== 'rumor') {
         newCont = 'no';
       } else if (det.next_episode_to_air) {
         newCont = 'airing';
@@ -1806,8 +1808,8 @@ function renderContinuationEditor() {
     .filter(m => m.type !== 'movie')
     .sort((a,b) => a.title.localeCompare(b.title));
 
-  const CONT_OPTIONS = ['unknown','rumor','no','confirmed','airing'];
-  const CONT_LABELS  = { unknown:'❓ Desconocida', rumor:'👂 Rumor', no:'✖ No continúa', confirmed:'✅ Confirmada', airing:'📺 En emisión' };
+  const CONT_OPTIONS = ['unknown','rumor','no','cancelled','confirmed','airing'];
+  const CONT_LABELS  = { unknown:'❓ Sin noticias', rumor:'👂 Rumor / filtración', no:'⏸ Sin noticias (podría volver)', cancelled:'❌ Cancelada definitivamente', confirmed:'✅ Confirmada', airing:'📺 Ya en emisión' };
 
   document.getElementById('cont-editor-list').innerHTML = list.map(m => {
     const opts = CONT_OPTIONS.map(v =>

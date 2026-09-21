@@ -1691,7 +1691,12 @@ async function sendBrowserNotif(title, body, icon) {
 // ════════════════════════════════════════════════════════════════
 function openStats() {
   document.getElementById('stats-modal').classList.add('open');
-  renderStats_full();
+  try {
+    renderStats_full();
+  } catch(e) {
+    document.getElementById('stats-content').innerHTML = '<p style="color:var(--danger);padding:1rem">Error: ' + e.message + '</p>';
+    console.error('Stats error:', e);
+  }
 }
 function closeStats() { document.getElementById('stats-modal').classList.remove('open'); }
 function closeStatsBg(e) { if (e.target.id === 'stats-modal') closeStats(); }
@@ -1794,7 +1799,12 @@ function renderStats_full() {
 // ════════════════════════════════════════════════════════════════
 function openContinuationEditor() {
   document.getElementById('cont-editor-modal').classList.add('open');
-  renderContinuationEditor();
+  try {
+    renderContinuationEditor();
+  } catch(e) {
+    document.getElementById('cont-editor-list').innerHTML = '<p style="color:var(--danger);padding:1rem">Error: ' + e.message + '</p>';
+    console.error('Cont editor error:', e);
+  }
 }
 function closeContinuationEditor() {
   document.getElementById('cont-editor-modal').classList.remove('open');

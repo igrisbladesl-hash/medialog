@@ -65,56 +65,54 @@ async function loadFromSupabase() {
     if (!res.ok) throw new Error('fetch failed');
     const rows = await res.json();
 
-    // Build map from Supabase
+    // Supabase is the source of truth — start with everything from remote
     const remoteMap = {};
     rows.forEach(r => { remoteMap[r.id] = recalcRating({ ...r.data, id: r.id }); });
 
-    // Build map from localStorage
+    // Check local for items that are NEWER than remote (made offline)
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
-    const localMap = {};
-    local.forEach(m => { localMap[m.id] = recalcRating(m); });
+    const toSync = []; // items only in local or newer locally
 
-    // Merge: for each id, keep the more complete version
-    const allIds = new Set([...Object.keys(remoteMap), ...Object.keys(localMap)]);
-    const merged = [];
-    const toSync = []; // items to push to Supabase that it doesn't have or has older version
-
-    allIds.forEach(id => {
-      const remote = remoteMap[id];
-      const loc    = localMap[id];
-      let winner;
-      if (remote && loc) {
-        winner = moreComplete(remote, loc);
+    local.forEach(m => {
+      if (!m.id || !m.title) return; // skip corrupt
+      const remote = remoteMap[m.id];
+      if (!remote) {
+        // Only in local — upload to Supabase and include
+        toSync.push(recalcRating(m));
+        remoteMap[m.id] = recalcRating(m);
       } else {
-        winner = remote || loc;
-      }
-      merged.push(winner);
-      // If local has something remote doesn't, or local is newer — sync up
-      if (!remote || (loc && winner === loc && JSON.stringify(winner) !== JSON.stringify(remote))) {
-        toSync.push(winner);
+        // Both exist — if local is strictly newer, use local and sync
+        const localTime  = parseInt(m.updatedAt) || 0;
+        const remoteTime = parseInt(remote.updatedAt) || 0;
+        if (localTime > remoteTime) {
+          const winner = recalcRating(m);
+          remoteMap[m.id] = winner;
+          toSync.push(winner);
+        }
       }
     });
 
-    // Sort by updatedAt desc
-    merged.sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
-    mediaList = merged;
+    // Build final list from remote map (source of truth + local additions)
+    mediaList = Object.values(remoteMap);
+    mediaList.sort((a,b) => (b.addedAt||b.updatedAt||0) - (a.addedAt||a.updatedAt||0));
     localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
 
-    // Push any local-only or newer-local items to Supabase
+    // Push local-only or newer-local items to Supabase
     if (toSync.length > 0) {
-      console.log(`Syncing ${toSync.length} local items to Supabase...`);
+      console.log(`Syncing ${toSync.length} local-only/newer items to Supabase...`);
       for (const entry of toSync) await saveToSupabase(entry);
     }
 
     setSyncStatus('ok');
   } catch(e) {
     console.warn('Supabase load failed, using local data', e);
-    // Fall back to localStorage
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
-    if (local.length > 0) mediaList = local;
+    if (local.length > 0) mediaList = local.filter(m => m.id && m.title);
     setSyncStatus('error');
   }
   render();
+  // Build calendar from manual airDay data immediately (no TMDB needed)
+  buildCalendar();
 }
 
 async function saveToSupabase(entry) {
@@ -1106,8 +1104,10 @@ function toggleCalendar() {
   document.getElementById('updates-panel').style.display = 'none';
   panelOpen = 'calendar';
   document.getElementById('calendar-panel').style.display = 'flex';
+  // Render immediately with what we have (includes manual airDay)
   renderCalendar();
-  refreshAll();
+  // Then refresh from TMDB in background if API key set
+  if (settings.apiKey) refreshAll();
 }
 
 function closePanel() {
@@ -1152,12 +1152,19 @@ async function fetchTMDBLive(m) {
       updated:    Date.now(),
     };
     // Auto-update continuation status in library
+    // NEVER overwrite 'rumor' — that's manual info TMDB doesn't have
     const entry = mediaList.find(x => x.id === m.id);
-    if (entry) {
+    if (entry && entry.continuation !== 'rumor') {
       let newCont = entry.continuation;
-      if (det.status === 'Ended' || det.status === 'Canceled') newCont = 'no';
-      else if (det.next_episode_to_air) newCont = 'airing';
-      else if (det.in_production) newCont = 'confirmed';
+      // Only update to 'no' if TMDB explicitly says ended/canceled AND
+      // current status is not a stronger confirmation
+      if ((det.status === 'Ended' || det.status === 'Canceled') && entry.continuation !== 'confirmed' && entry.continuation !== 'airing') {
+        newCont = 'no';
+      } else if (det.next_episode_to_air) {
+        newCont = 'airing';
+      } else if (det.in_production) {
+        newCont = 'confirmed';
+      }
       if (newCont !== entry.continuation) {
         entry.continuation = newCont;
         entry.updatedAt = Date.now();
@@ -1329,8 +1336,10 @@ function buildNotifications() {
 // Helper: get next occurrence of a weekday name (es/en)
 function nextWeekdayDate(dayName) {
   const days = {
-    'lunes':1,'monday':1,'martes':2,'tuesday':2,'miércoles':3,'miercoles':3,'wednesday':3,
-    'jueves':4,'thursday':4,'viernes':5,'friday':5,'sábado':6,'sabado':6,'saturday':6,'domingo':0,'sunday':0
+    'lunes':1,'monday':1,'martes':2,'tuesday':2,
+    'miércoles':3,'miercoles':3,'wednesday':3,
+    'jueves':4,'thursday':4,'viernes':5,'friday':5,
+    'sábado':6,'sabado':6,'saturday':6,'domingo':0,'sunday':0
   };
   const target = days[dayName.toLowerCase().trim()];
   if (target === undefined) return null;
@@ -1338,7 +1347,8 @@ function nextWeekdayDate(dayName) {
   const current = d.getDay();
   let diff = target - current;
   if (diff < 0) diff += 7;
-  if (diff === 0) diff = 7; // next week if today
+  // if today IS the day, show today (not next week)
+  // diff === 0 means today
   d.setDate(d.getDate() + diff);
   return d.toISOString().slice(0,10);
 }
@@ -1348,53 +1358,77 @@ function buildCalendar() {
   const todayStr = today.toISOString().slice(0, 10);
   const in30 = new Date(today.getTime() + 30*24*60*60*1000).toISOString().slice(0,10);
   calendarData = [];
-  const addedIds = new Set(); // avoid duplicates
 
-  // ── From TMDB cache ──
-  Object.values(tmdbCache).forEach(data => {
-    if (data.nextEp && data.nextEp.air_date >= todayStr && data.nextEp.air_date <= in30) {
-      const entry = mediaList.find(x=>x.id===data.mediaId);
-      const seasonObj = entry?.seasons?.find(s=>s.tmdbSeason===data.nextEp.season_number || s.number===data.nextEp.season_number);
-      const key = data.mediaId + '-' + data.nextEp.season_number;
-      addedIds.add(key);
-      calendarData.push({
-        date: data.nextEp.air_date,
-        mediaId: data.mediaId,
-        poster: data.poster,
-        title: data.title,
-        season: data.nextEp.season_number,
-        episode: data.nextEp.episode_number,
-        epName: data.nextEp.name || '',
-        airDay: seasonObj?.airDay || '',
-        source: 'tmdb',
-      });
+  // Build a map of all watching series/anime with their active season airDay
+  const airDayMap = {}; // mediaId -> { airDay, seasonNum, epSeen, epTotal, poster }
+  mediaList.filter(m => m.status === 'watching' && m.type !== 'movie').forEach(m => {
+    // Find current active season (first incomplete)
+    const seasons = m.seasons || [];
+    for (let si = 0; si < seasons.length; si++) {
+      const s = seasons[si];
+      const epSeen  = parseInt(s.epSeen)||0;
+      const epTotal = parseInt(s.epTotal)||0;
+      if (epTotal === 0 || epSeen < epTotal) {
+        if (s.airDay) {
+          airDayMap[m.id] = {
+            airDay: s.airDay,
+            seasonNum: s.number || si+1,
+            epSeen,
+            epTotal,
+            poster: getCardPoster(m),
+            title: m.title,
+          };
+        }
+        break; // only care about current season
+      }
     }
   });
 
-  // ── From manual airDay (for series TMDB doesn't have a date for) ──
-  mediaList.filter(m => m.status === 'watching' && m.type !== 'movie').forEach(m => {
-    (m.seasons||[]).forEach((s, si) => {
-      if (!s.airDay) return;
-      const epSeen  = parseInt(s.epSeen)||0;
-      const epTotal = parseInt(s.epTotal)||0;
-      if (epTotal > 0 && epSeen >= epTotal) return; // season complete, skip
-      const key = m.id + '-' + (s.number||si+1);
-      if (addedIds.has(key)) return; // TMDB already added this
-      // Generate next occurrence of this weekday
-      const nextDate = nextWeekdayDate(s.airDay);
-      if (!nextDate || nextDate > in30) return;
-      const poster = getCardPoster(m);
-      calendarData.push({
-        date: nextDate,
-        mediaId: m.id,
-        poster,
-        title: m.title,
-        season: s.number||si+1,
-        episode: epSeen + 1,
-        epName: '',
-        airDay: s.airDay,
-        source: 'manual',
-      });
+  // ── From TMDB cache — but override date if user set airDay ──
+  const addedIds = new Set();
+  Object.values(tmdbCache).forEach(data => {
+    if (!data.nextEp) return;
+    const manual = airDayMap[data.mediaId];
+    let useDate = data.nextEp.air_date;
+
+    // If user set a manual airDay, use that day instead of TMDB date
+    if (manual?.airDay) {
+      const manualDate = nextWeekdayDate(manual.airDay);
+      if (manualDate) useDate = manualDate;
+    }
+
+    if (useDate < todayStr || useDate > in30) return;
+
+    const key = data.mediaId + '-' + data.nextEp.season_number;
+    addedIds.add(data.mediaId);
+    calendarData.push({
+      date: useDate,
+      mediaId: data.mediaId,
+      poster: data.poster,
+      title: data.title,
+      season: data.nextEp.season_number,
+      episode: data.nextEp.episode_number,
+      epName: data.nextEp.name || '',
+      airDay: manual?.airDay || '',
+      source: manual?.airDay ? 'manual' : 'tmdb',
+    });
+  });
+
+  // ── From manual airDay only — for series TMDB doesn't know about ──
+  Object.entries(airDayMap).forEach(([mediaId, info]) => {
+    if (addedIds.has(mediaId)) return; // already added via TMDB
+    const nextDate = nextWeekdayDate(info.airDay);
+    if (!nextDate || nextDate > in30) return;
+    calendarData.push({
+      date: nextDate,
+      mediaId,
+      poster: info.poster,
+      title: info.title,
+      season: info.seasonNum,
+      episode: info.epSeen + 1,
+      epName: '',
+      airDay: info.airDay,
+      source: 'manual',
     });
   });
 
@@ -1751,4 +1785,58 @@ function renderStats_full() {
       </div>
     </div>
   `;
+}
+
+// ════════════════════════════════════════════════════════════════
+// BULK CONTINUATION EDITOR
+// ════════════════════════════════════════════════════════════════
+function openContinuationEditor() {
+  document.getElementById('cont-editor-modal').classList.add('open');
+  renderContinuationEditor();
+}
+function closeContinuationEditor() {
+  document.getElementById('cont-editor-modal').classList.remove('open');
+}
+function closeContinuationEditorBg(e) {
+  if (e.target.id === 'cont-editor-modal') closeContinuationEditor();
+}
+
+function renderContinuationEditor() {
+  const list = mediaList
+    .filter(m => m.type !== 'movie')
+    .sort((a,b) => a.title.localeCompare(b.title));
+
+  const CONT_OPTIONS = ['unknown','rumor','no','confirmed','airing'];
+  const CONT_LABELS  = { unknown:'❓ Desconocida', rumor:'👂 Rumor', no:'✖ No continúa', confirmed:'✅ Confirmada', airing:'📺 En emisión' };
+
+  document.getElementById('cont-editor-list').innerHTML = list.map(m => {
+    const opts = CONT_OPTIONS.map(v =>
+      `<option value="${v}" ${m.continuation===v?'selected':''}>${CONT_LABELS[v]}</option>`
+    ).join('');
+    const poster = getCardPoster(m);
+    const posterHTML = poster
+      ? `<img src="${poster}" style="width:36px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
+      : `<div style="width:36px;height:52px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${TYPE_EMOJI[m.type]}</div>`;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      ${posterHTML}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${TYPE_LABELS[m.type]} · ${m.year||'—'}</div>
+      </div>
+      <select onchange="updateContinuation('${m.id}',this.value)"
+        style="font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+        ${opts}
+      </select>
+    </div>`;
+  }).join('');
+}
+
+async function updateContinuation(id, value) {
+  const m = mediaList.find(x => x.id === id);
+  if (!m) return;
+  m.continuation = value;
+  m.updatedAt = Date.now();
+  saveData();
+  render();
+  await saveToSupabase(m);
 }

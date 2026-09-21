@@ -273,12 +273,12 @@
 
 <!-- STATS MODAL -->
 <div id="stats-modal" class="overlay" onclick="closeStatsBg(event)">
-  <div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:16px;width:100%;max-width:680px;height:85vh;display:flex;flex-direction:column;overflow:hidden">
-    <div class="modal-header" style="flex-shrink:0">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
       <h2>📊 Mis estadísticas</h2>
       <button class="icon-btn" onclick="closeStats()"><i class="ti ti-x"></i></button>
     </div>
-    <div style="flex:1;overflow-y:auto;padding:0 1.25rem 1.25rem;-webkit-overflow-scrolling:touch">
+    <div class="form-body" style="padding-bottom:1.25rem">
       <div id="stats-content"></div>
     </div>
   </div>
@@ -286,15 +286,13 @@
 
 <!-- CONTINUATION EDITOR -->
 <div id="cont-editor-modal" class="overlay" onclick="closeContinuationEditorBg(event)">
-  <div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:16px;width:100%;max-width:520px;height:85vh;display:flex;flex-direction:column;overflow:hidden">
-    <div class="modal-header" style="flex-shrink:0">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
       <h2>📋 Editar continuaciones</h2>
       <button class="icon-btn" onclick="closeContinuationEditor()"><i class="ti ti-x"></i></button>
     </div>
-    <div style="flex-shrink:0;padding:0 1.25rem 0.75rem;font-size:12px;color:var(--text-muted)">
-      Cambia el estado de continuación. Los cambios se guardan automáticamente.
-    </div>
-    <div style="flex:1;overflow-y:auto;padding:0 1.25rem 1.25rem;-webkit-overflow-scrolling:touch">
+    <div class="form-body" style="padding-bottom:1.25rem">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">Cambia el estado de continuación. Los cambios se guardan automáticamente.</p>
       <div id="cont-editor-list"></div>
     </div>
   </div>

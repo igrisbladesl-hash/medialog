@@ -35,6 +35,7 @@
       <div class="nav-item" onclick="document.getElementById('import-input').click()"><i class="ti ti-upload"></i> Importar</div>
       <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)">
       <div class="nav-item" onclick="openStats()"><i class="ti ti-chart-bar"></i> Estadísticas</div>
+      <div class="nav-item" onclick="openContinuationEditor()"><i class="ti ti-list-check"></i> Continuaciones</div>
       <div class="nav-item" onclick="openSettings()"><i class="ti ti-settings"></i> Ajustes</div>
     </div>
   </aside>
@@ -278,6 +279,22 @@
     </div>
     <div style="overflow-y:auto;flex:1;padding:0 1.25rem 1.25rem">
       <div id="stats-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CONTINUATION EDITOR -->
+<div id="cont-editor-modal" class="overlay" onclick="closeContinuationEditorBg(event)">
+  <div class="modal" style="max-width:520px;max-height:85vh">
+    <div class="modal-header">
+      <h2>📋 Editar continuaciones</h2>
+      <button class="icon-btn" onclick="closeContinuationEditor()"><i class="ti ti-x"></i></button>
+    </div>
+    <div style="padding:0 1.25rem 0.5rem;font-size:12px;color:var(--text-muted)">
+      Cambia el estado de continuación de todas tus series y animes desde aquí. Los cambios se guardan automáticamente.
+    </div>
+    <div style="overflow-y:auto;flex:1;padding:0 1.25rem 1.25rem">
+      <div id="cont-editor-list"></div>
     </div>
   </div>
 </div>

@@ -599,3 +599,6 @@ a { color: var(--accent-text); }
 }
 .notif-cancelled { border-color: var(--danger); background: var(--danger-bg); }
 .notif-ended { border-color: var(--text-muted); background: var(--surface-3); }
+
+/* Cancelled continuation tag */
+.tag-cont-cancelled { background: var(--danger-bg); color: var(--danger-text); }

@@ -1755,7 +1755,7 @@ function renderStats_full() {
     const poster = getCardPoster(m);
     return `<div style="display:flex;gap:10px;align-items:center;padding:8px;background:var(--surface-3);border-radius:var(--radius);margin-bottom:6px">
       ${poster ? `<img src="${poster}" style="width:36px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">` : `<div style="width:36px;height:52px;background:var(--surface-2);border-radius:6px;display:flex;align-items:center;justify-content:center">${TYPE_EMOJI[m.type]}</div>`}
-      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div><div style="font-size:11px;color:var(--text-muted)">${TYPE_LABELS[m.type]}</div></div>
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div><div style="font-size:11px;color:var(--text-muted)">${TYPE_LABEL[m.type]}</div></div>
       <div style="font-size:16px;font-weight:700;color:var(--warning-text)">★ ${m.rating}</div>
     </div>`;
   }).join('');
@@ -1833,7 +1833,7 @@ function renderContinuationEditor() {
       ${posterHTML}
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div>
-        <div style="font-size:11px;color:var(--text-muted)">${TYPE_LABELS[m.type]} · ${m.year||'—'}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${TYPE_LABEL[m.type]} · ${m.year||'—'}</div>
       </div>
       <select onchange="updateContinuation('${m.id}',this.value)"
         style="font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">

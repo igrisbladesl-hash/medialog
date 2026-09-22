@@ -353,8 +353,10 @@ function openModal(id) {
 function updateModalFields() {
   const isMovie = document.getElementById('f-type').value === 'movie';
   document.getElementById('seasons-section').style.display = isMovie ? 'none' : 'block';
-  document.getElementById('f-continuation-wrap').style.display = isMovie ? 'none' : 'block';
   document.getElementById('movie-poster-section').style.display = isMovie ? 'block' : 'none';
+  // Show continuation for all types — movies can have sequels too
+  const contLabel = document.querySelector('#f-continuation-wrap label');
+  if (contLabel) contLabel.textContent = isMovie ? 'Secuela / continuación' : 'Continuación';
 }
 
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }
@@ -382,7 +384,7 @@ async function saveMedia() {
     genre:        document.getElementById('f-genre').value.trim(),
     status:       document.getElementById('f-status').value,
     rating:       calcRating(type, document.getElementById('f-rating').value, type==='movie' ? [] : getSeasonData()),
-    continuation: type==='movie' ? 'no' : document.getElementById('f-continuation').value,
+    continuation: document.getElementById('f-continuation').value,
     tmdbId:       document.getElementById('f-tmdb-id').value,
     tmdbType:     document.getElementById('f-tmdb-type').value,
     poster:       type==='movie' ? (document.getElementById('f-movie-poster').value.trim()||'') : '',

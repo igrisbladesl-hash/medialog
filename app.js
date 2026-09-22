@@ -701,9 +701,27 @@ const style = document.createElement('style');
 style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
 document.head.appendChild(style);
 
+// ── VERSION FROM GITHUB ────────────────────────────────────────────────────
+async function loadVersion() {
+  try {
+    const res = await fetch('https://api.github.com/repos/igrisbladesl-hash/medialog/commits?per_page=1');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data[0]) {
+      const sha     = data[0].sha.slice(0, 7);
+      const date    = new Date(data[0].commit.author.date);
+      const dateStr = date.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'2-digit' });
+      const msg     = data[0].commit.message.split('\n')[0].slice(0, 50);
+      const el = document.getElementById('app-version');
+      if (el) { el.textContent = `${sha} · ${dateStr}`; el.title = msg; }
+    }
+  } catch(e) {}
+}
+
 // ── INIT ───────────────────────────────────────────────────────────────────
 loadFromSupabase();
 loadNotifHistory();
+loadVersion();
 
 // ── GLOBAL TMDB REFRESH ────────────────────────────────────────────────────
 let lastRefreshChanges = []; // store detected changes from last refresh
@@ -1162,9 +1180,10 @@ async function fetchTMDBLive(m) {
       }
       if (newCont !== entry.continuation) {
         entry.continuation = newCont;
-        // Don't update updatedAt for auto-TMDB changes — only user actions should do that
+        // Only update local — never auto-save to Supabase from TMDB refresh
+        // User actions (edit, quickRating, changeEp) are the only things that write to Supabase
         saveData();
-        await saveToSupabase(entry);
+        render(); // refresh tags on cards
       }
     }
   } catch(e) {}

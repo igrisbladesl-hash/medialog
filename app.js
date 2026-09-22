@@ -28,17 +28,19 @@ const CONT_LABEL = { unknown: '', no: 'Sin noticias', rumor: 'Rumor', confirmed:
 
 // ── SUPABASE SYNC ──────────────────────────────────────────────────────────
 function recalcRating(m) {
-  // Limpiar ratings corruptos ([object Promise], [object Object], etc.)
+  // Work on a copy to avoid mutating Supabase data
+  m = { ...m, seasons: m.seasons ? m.seasons.map(s => ({...s})) : [] };
+  // Clean corrupt ratings
   if (m.rating && (String(m.rating).includes('object') || String(m.rating).includes('Promise'))) {
     m.rating = '';
   }
-  m.seasons?.forEach(s => {
+  m.seasons.forEach(s => {
     if (s.rating && (String(s.rating).includes('object') || String(s.rating).includes('Promise'))) {
       s.rating = '';
     }
   });
-  // Recalcular como media de temporadas
-  if (m.type !== 'movie' && m.seasons?.length > 0) {
+  // Recalculate as average of season ratings
+  if (m.type !== 'movie' && m.seasons.length > 0) {
     const ratings = m.seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
     if (ratings.length > 0) m.rating = Math.round(ratings.reduce((a,b)=>a+b,0)/ratings.length*10)/10;
   }
@@ -65,53 +67,42 @@ async function loadFromSupabase() {
     if (!res.ok) throw new Error('fetch failed');
     const rows = await res.json();
 
-    // Supabase is the source of truth — start with everything from remote
+    // SUPABASE IS ALWAYS SOURCE OF TRUTH
+    // Build map from Supabase
     const remoteMap = {};
     rows.forEach(r => { remoteMap[r.id] = recalcRating({ ...r.data, id: r.id }); });
 
-    // Check local for items that are NEWER than remote (made offline)
+    // Only add local items that DON'T exist in Supabase (created offline)
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
-    const toSync = []; // items only in local or newer locally
-
+    const toSync = [];
     local.forEach(m => {
-      if (!m.id || !m.title) return; // skip corrupt
-      const remote = remoteMap[m.id];
-      if (!remote) {
-        // Only in local — upload to Supabase and include
-        toSync.push(recalcRating(m));
-        remoteMap[m.id] = recalcRating(m);
-      } else {
-        // Both exist — if local is strictly newer, use local and sync
-        const localTime  = parseInt(m.updatedAt) || 0;
-        const remoteTime = parseInt(remote.updatedAt) || 0;
-        if (localTime > remoteTime) {
-          const winner = recalcRating(m);
-          remoteMap[m.id] = winner;
-          toSync.push(winner);
-        }
+      if (!m.id || !m.title || !m.type) return; // skip corrupt
+      if (!remoteMap[m.id]) {
+        // New item created offline — add it
+        const entry = recalcRating(m);
+        remoteMap[m.id] = entry;
+        toSync.push(entry);
+        console.log('Uploading offline item:', m.title);
       }
+      // If it exists in Supabase, Supabase wins — no comparison
     });
 
-    // Build final list from remote map (source of truth + local additions)
+    // Final list = everything from Supabase + any offline additions
     mediaList = Object.values(remoteMap);
     mediaList.sort((a,b) => (b.addedAt||b.updatedAt||0) - (a.addedAt||a.updatedAt||0));
     localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
 
-    // Push local-only or newer-local items to Supabase
-    if (toSync.length > 0) {
-      console.log(`Syncing ${toSync.length} local-only/newer items to Supabase...`);
-      for (const entry of toSync) await saveToSupabase(entry);
-    }
+    // Upload offline-created items
+    for (const entry of toSync) await saveToSupabase(entry);
 
     setSyncStatus('ok');
   } catch(e) {
     console.warn('Supabase load failed, using local data', e);
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
-    if (local.length > 0) mediaList = local.filter(m => m.id && m.title);
+    if (local.length > 0) mediaList = local.filter(m => m.id && m.title && m.type);
     setSyncStatus('error');
   }
   render();
-  // Build calendar from manual airDay data immediately (no TMDB needed)
   buildCalendar();
 }
 
@@ -1169,7 +1160,7 @@ async function fetchTMDBLive(m) {
       }
       if (newCont !== entry.continuation) {
         entry.continuation = newCont;
-        entry.updatedAt = Date.now();
+        // Don't update updatedAt for auto-TMDB changes — only user actions should do that
         saveData();
         await saveToSupabase(entry);
       }

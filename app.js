@@ -1804,17 +1804,61 @@ function closeContinuationEditorBg(e) {
   if (e.target.id === 'cont-editor-modal') closeContinuationEditor();
 }
 
+// State for continuation editor filters
+let contEditorSearch = '';
+let contEditorType = 'all';
+let contEditorFilter = 'all';
+
 function renderContinuationEditor() {
-  const list = mediaList
-    .filter(m => m.type !== 'movie')
-    .sort((a,b) => a.title.localeCompare(b.title));
-
   const CONT_OPTIONS = ['unknown','rumor','no','cancelled','confirmed','airing'];
-  const CONT_LABELS  = { unknown:'❓ Sin noticias', rumor:'👂 Rumor / filtración', no:'⏸ Sin noticias (podría volver)', cancelled:'❌ Cancelada definitivamente', confirmed:'✅ Confirmada', airing:'📺 Ya en emisión' };
+  const CONT_LABELS  = {
+    unknown:'❓ Sin noticias', rumor:'👂 Rumor / filtración',
+    no:'⏸ Sin continuación por ahora', cancelled:'❌ Cancelada definitivamente',
+    confirmed:'✅ Confirmada', airing:'📺 Ya en emisión'
+  };
 
-  document.getElementById('cont-editor-list').innerHTML = list.map(m => {
+  // Apply filters
+  let list = mediaList.filter(m => m.type !== 'movie');
+  if (contEditorType !== 'all') list = list.filter(m => m.type === contEditorType);
+  if (contEditorFilter !== 'all') list = list.filter(m => (m.continuation||'unknown') === contEditorFilter);
+  if (contEditorSearch) {
+    const q = contEditorSearch.toLowerCase();
+    list = list.filter(m => m.title.toLowerCase().includes(q));
+  }
+  list.sort((a,b) => a.title.localeCompare(b.title));
+
+  const counts = {};
+  CONT_OPTIONS.forEach(v => { counts[v] = mediaList.filter(m => m.type !== 'movie' && (m.continuation||'unknown') === v).length; });
+
+  const filterBtns = ['all','unknown','rumor','no','cancelled','confirmed','airing'].map(v => {
+    const label = v === 'all' ? `Todos (${mediaList.filter(m=>m.type!=='movie').length})` : `${CONT_LABELS[v]||v} (${counts[v]||0})`;
+    const active = contEditorFilter === v;
+    return `<button onclick="setContFilter('${v}')" style="font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-bg)':'none'};color:${active?'var(--accent-text)':'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${label}</button>`;
+  }).join('');
+
+  const header = `
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:6px;background:var(--surface-3);border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;flex:1">
+        <i class="ti ti-search" style="color:var(--text-muted);font-size:13px"></i>
+        <input type="text" placeholder="Buscar..." value="${contEditorSearch}"
+          oninput="contEditorSearch=this.value;renderContinuationEditor()"
+          style="border:none;background:none;outline:none;font-size:13px;color:var(--text-primary);width:100%;font-family:inherit">
+      </div>
+      <select onchange="contEditorType=this.value;renderContinuationEditor()"
+        style="font-size:12px;padding:5px 8px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+        <option value="all" ${contEditorType==='all'?'selected':''}>Todo</option>
+        <option value="series" ${contEditorType==='series'?'selected':''}>Series</option>
+        <option value="anime" ${contEditorType==='anime'?'selected':''}>Anime</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+      ${filterBtns}
+    </div>
+    ${list.length === 0 ? '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:1.5rem">Sin resultados</p>' : ''}`;
+
+  const rows = list.map(m => {
     const opts = CONT_OPTIONS.map(v =>
-      `<option value="${v}" ${m.continuation===v?'selected':''}>${CONT_LABELS[v]}</option>`
+      `<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${CONT_LABELS[v]}</option>`
     ).join('');
     const poster = getCardPoster(m);
     const posterHTML = poster
@@ -1832,6 +1876,13 @@ function renderContinuationEditor() {
       </select>
     </div>`;
   }).join('');
+
+  document.getElementById('cont-editor-list').innerHTML = header + rows;
+}
+
+function setContFilter(v) {
+  contEditorFilter = v;
+  renderContinuationEditor();
 }
 
 async function updateContinuation(id, value) {

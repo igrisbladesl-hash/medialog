@@ -36,6 +36,7 @@
       <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)">
       <div class="nav-item" onclick="openStats()"><i class="ti ti-chart-bar"></i> Estadísticas</div>
       <div class="nav-item" onclick="openContinuationEditor()"><i class="ti ti-list-check"></i> Continuaciones</div>
+      <div class="nav-item" onclick="openReminders()"><i class="ti ti-bell-ringing"></i> Recordatorios <span class="badge" id="badge-reminders">0</span></div>
       <div class="nav-item" onclick="openSettings()"><i class="ti ti-settings"></i> Ajustes</div>
       <div style="padding:0.5rem 0.6rem 0;font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:5px"><i class="ti ti-git-commit" style="font-size:12px"></i><span id="app-version">cargando...</span></div>
     </div>
@@ -108,6 +109,7 @@
     </div>
 
     <div class="stats-bar" id="stats-bar"></div>
+    <div id="subtype-bar" style="display:none;gap:6px;padding:0.5rem 1.5rem;background:var(--surface-1);border-bottom:1px solid var(--border);overflow-x:auto;align-items:center;flex-shrink:0"></div>
     <div class="content">
       <div class="grid" id="media-grid"></div>
       <div class="empty-state" id="empty-state" style="display:none">
@@ -295,6 +297,22 @@
     <div class="form-body" style="padding-bottom:1.25rem">
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">Cambia el estado de continuación. Los cambios se guardan automáticamente.</p>
       <div id="cont-editor-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- REMINDERS MODAL -->
+<div id="reminders-modal" class="overlay" onclick="closeRemindersBg(event)">
+  <div style="background:var(--surface-2);border:1px solid var(--border-strong);border-radius:16px;width:100%;max-width:560px;height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div class="modal-header" style="flex-shrink:0">
+      <h2>🔔 Recordatorios de seguimiento</h2>
+      <button class="icon-btn" onclick="closeReminders()"><i class="ti ti-x"></i></button>
+    </div>
+    <div style="flex-shrink:0;padding:0.5rem 1.25rem;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+      Series y animes completados sin noticias de continuación — para que no se te olvide revisar si hay novedades.
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:0.75rem 1.25rem 1.25rem;-webkit-overflow-scrolling:touch">
+      <div id="reminders-list"></div>
     </div>
   </div>
 </div>

@@ -15,6 +15,7 @@ let settings  = JSON.parse(localStorage.getItem('medialog_settings') || '{"apiKe
 let editingId = null;
 let currentSection = 'all';
 let currentFilter  = null;
+let currentSubtype = null; // 'series' | 'anime' | 'movie' | null
 let currentSearch  = '';
 let activeSeasonTab = {};
 let syncStatus = 'idle'; // idle | syncing | ok | error
@@ -155,7 +156,7 @@ function genId() { return Date.now().toString(36) + Math.random().toString(36).s
 
 // ── NAVIGATION ─────────────────────────────────────────────────────────────
 function setSection(s) {
-  currentSection = s; currentFilter = null;
+  currentSection = s; currentFilter = null; currentSubtype = null;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.getElementById('nav-' + s)?.classList.add('active');
   const titles = { all: 'Mi biblioteca', series: 'Series', movie: 'Películas', anime: 'Anime' };
@@ -163,8 +164,8 @@ function setSection(s) {
   render();
 }
 function setFilter(f) {
-  if (currentFilter === f) { currentFilter = null; setSection('all'); return; }
-  currentFilter = f; currentSection = 'all';
+  if (currentFilter === f) { currentFilter = null; currentSubtype = null; setSection('all'); return; }
+  currentFilter = f; currentSection = 'all'; currentSubtype = null;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.getElementById('nav-' + f)?.classList.add('active');
   render();
@@ -176,7 +177,8 @@ function getFiltered() {
   let list = [...mediaList];
   if (currentSection === 'anime') list = list.filter(m => m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie));
   else if (currentSection !== 'all') list = list.filter(m => m.type === currentSection);
-  if (currentFilter)            list = list.filter(m => m.status === currentFilter);
+  if (currentFilter) list = list.filter(m => m.status === currentFilter);
+  if (currentSubtype) list = list.filter(m => m.type === currentSubtype);
   if (currentSearch) {
     const q = currentSearch.toLowerCase();
     list = list.filter(m => m.title.toLowerCase().includes(q) || (m.genre||'').toLowerCase().includes(q));
@@ -238,6 +240,42 @@ function render() {
   if (list.length === 0) { grid.innerHTML=''; empty.style.display='block'; }
   else { empty.style.display='none'; grid.innerHTML=list.map(renderCard).join(''); }
   renderStats();
+  renderSubtypeBar();
+}
+
+function renderSubtypeBar() {
+  const bar = document.getElementById('subtype-bar');
+  if (!bar) return;
+  // Show subtype bar when a status filter is active
+  if (!currentFilter) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+
+  // Count by type for current filter
+  const base = mediaList.filter(m => m.status === currentFilter);
+  const counts = {
+    all: base.length,
+    series: base.filter(m => m.type === 'series').length,
+    anime: base.filter(m => m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie)).length,
+    movie: base.filter(m => m.type === 'movie' && !m.isAnimeMovie).length,
+  };
+
+  const btns = [
+    { key: null,     label: `Todo (${counts.all})` },
+    { key: 'series', label: `📺 Series (${counts.series})` },
+    { key: 'anime',  label: `⛩️ Anime (${counts.anime})` },
+    { key: 'movie',  label: `🎬 Películas (${counts.movie})` },
+  ].map(b => {
+    const active = currentSubtype === b.key;
+    return `<button onclick="setSubtype(${b.key ? "'"+b.key+"'" : 'null'})"
+      style="font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};background:${active ? 'var(--accent-bg)' : 'none'};color:${active ? 'var(--accent-text)' : 'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${b.label}</button>`;
+  }).join('');
+
+  bar.innerHTML = `<span style="font-size:11px;color:var(--text-muted)">Tipo:</span>${btns}`;
+}
+
+function setSubtype(type) {
+  currentSubtype = type;
+  render();
 }
 
 // ── SEASON FIELDS IN MODAL ─────────────────────────────────────────────────
@@ -1915,3 +1953,102 @@ async function updateContinuation(id, value) {
   render();
   await saveToSupabase(m);
 }
+
+// ════════════════════════════════════════════════════════════════
+// REMINDERS — review completed series/anime for continuation news
+// ════════════════════════════════════════════════════════════════
+
+function openReminders() {
+  document.getElementById('reminders-modal').classList.add('open');
+  renderReminders();
+}
+function closeReminders() { document.getElementById('reminders-modal').classList.remove('open'); }
+function closeRemindersBg(e) { if (e.target.id === 'reminders-modal') closeReminders(); }
+
+function renderReminders() {
+  const el = document.getElementById('reminders-list');
+  if (!el) return;
+
+  const CONT_LABELS = {
+    unknown: '❓ Sin noticias', rumor: '👂 Rumor / filtración',
+    no: '⏸ Sin continuación por ahora', confirmed: '✅ Confirmada', airing: '📺 Ya en emisión'
+  };
+  const CONT_COLOR = {
+    unknown: 'var(--text-muted)', rumor: 'var(--anime-text)',
+    no: 'var(--text-secondary)', confirmed: 'var(--success)', airing: 'var(--success)'
+  };
+
+  // All completed series/anime EXCEPT cancelled definitively
+  const candidates = mediaList.filter(m =>
+    m.type !== 'movie' &&
+    m.status === 'completed' &&
+    m.continuation !== 'cancelled'
+  ).sort((a,b) => {
+    // Sort: unknown first, then no, then rumor, then confirmed, then airing
+    const order = { unknown:0, no:1, rumor:2, confirmed:3, airing:4 };
+    return (order[a.continuation||'unknown']||0) - (order[b.continuation||'unknown']||0) || a.title.localeCompare(b.title);
+  });
+
+  // Group by continuation status
+  const groups = {};
+  candidates.forEach(m => {
+    const key = m.continuation || 'unknown';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(m);
+  });
+
+  if (candidates.length === 0) {
+    el.innerHTML = '<div class="notif-empty"><i class="ti ti-check"></i>No hay nada pendiente de revisar.</div>';
+    updateRemindersBadge(0);
+    return;
+  }
+
+  // Priority: unknown and no first (need checking), then rumor, confirmed, airing
+  const order = ['unknown','no','rumor','confirmed','airing'];
+  let html = '';
+
+  order.forEach(key => {
+    const items = groups[key];
+    if (!items || items.length === 0) return;
+    const label = CONT_LABELS[key] || key;
+    html += `<div class="notif-section-label" style="color:${CONT_COLOR[key]}">${label} (${items.length})</div>`;
+    html += items.map(m => {
+      const poster = getCardPoster(m);
+      const posterHTML = poster
+        ? `<img src="${poster}" style="width:40px;height:56px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
+        : `<div style="width:40px;height:56px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px">${TYPE_EMOJI[m.type]}</div>`;
+
+      const tmdbLink = m.tmdbId
+        ? `<a href="https://www.themoviedb.org/tv/${m.tmdbId}" target="_blank" style="font-size:10px;color:var(--accent-text);text-decoration:none" title="Ver en TMDB">TMDB ↗</a>`
+        : '';
+
+      const contOpts = ['unknown','rumor','no','confirmed','airing','cancelled'].map(v => {
+        const optLabels = { unknown:'❓ Sin noticias', rumor:'👂 Rumor', no:'⏸ Sin cont.', confirmed:'✅ Confirmada', airing:'📺 En emisión', cancelled:'❌ Cancelada' };
+        return `<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${optLabels[v]}</option>`;
+      }).join('');
+
+      return `<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        ${posterHTML}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">${TYPE_LABEL[m.type]} · ${m.year||'—'} · ${m.seasons?.length||1} temp. ${tmdbLink}</div>
+        </div>
+        <select onchange="updateContinuation('${m.id}',this.value);renderReminders()"
+          style="font-size:11px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer;max-width:130px">
+          ${contOpts}
+        </select>
+      </div>`;
+    }).join('');
+  });
+
+  el.innerHTML = html;
+  updateRemindersBadge(groups['unknown']?.length || 0);
+}
+
+function updateRemindersBadge(count) {
+  const el = document.getElementById('badge-reminders');
+  if (el) el.textContent = count > 0 ? count : mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled').length;
+}
+
+// Update badge on load
+setTimeout(updateRemindersBadge, 1500);

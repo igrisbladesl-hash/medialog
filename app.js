@@ -1965,89 +1965,179 @@ function openReminders() {
 function closeReminders() { document.getElementById('reminders-modal').classList.remove('open'); }
 function closeRemindersBg(e) { if (e.target.id === 'reminders-modal') closeReminders(); }
 
+// Reminder intervals in months
+const REMINDER_INTERVALS = [
+  { value: 1,  label: 'Cada mes' },
+  { value: 3,  label: 'Cada 3 meses' },
+  { value: 6,  label: 'Cada 6 meses' },
+  { value: 12, label: 'Cada año' },
+  { value: 24, label: 'Cada 2 años' },
+  { value: 0,  label: 'Sin recordatorio' },
+];
+
+async function setReminder(mediaId, months) {
+  const m = mediaList.find(x => x.id === mediaId);
+  if (!m) return;
+  m.reminder = {
+    interval: parseInt(months),
+    lastChecked: Date.now(),
+    nextDue: months > 0 ? Date.now() + parseInt(months) * 30 * 24 * 60 * 60 * 1000 : null,
+  };
+  m.updatedAt = Date.now();
+  saveData();
+  await saveToSupabase(m);
+  renderReminders();
+  updateRemindersBadge();
+}
+
+async function markReminderChecked(mediaId) {
+  const m = mediaList.find(x => x.id === mediaId);
+  if (!m || !m.reminder) return;
+  m.reminder.lastChecked = Date.now();
+  m.reminder.nextDue = m.reminder.interval > 0
+    ? Date.now() + m.reminder.interval * 30 * 24 * 60 * 60 * 1000
+    : null;
+  m.updatedAt = Date.now();
+  saveData();
+  await saveToSupabase(m);
+  renderReminders();
+  updateRemindersBadge();
+}
+
+function isDue(m) {
+  if (!m.reminder || !m.reminder.nextDue) return false;
+  return Date.now() >= m.reminder.nextDue;
+}
+
+function daysUntilDue(m) {
+  if (!m.reminder?.nextDue) return null;
+  const diff = m.reminder.nextDue - Date.now();
+  return Math.ceil(diff / (24 * 60 * 60 * 1000));
+}
+
+let remindersFilter = 'all'; // 'all' | 'due' | 'set' | 'unset'
+
 function renderReminders() {
   const el = document.getElementById('reminders-list');
   if (!el) return;
 
-  const CONT_LABELS = {
-    unknown: '❓ Sin noticias', rumor: '👂 Rumor / filtración',
-    no: '⏸ Sin continuación por ahora', confirmed: '✅ Confirmada', airing: '📺 Ya en emisión'
-  };
-  const CONT_COLOR = {
-    unknown: 'var(--text-muted)', rumor: 'var(--anime-text)',
-    no: 'var(--text-secondary)', confirmed: 'var(--success)', airing: 'var(--success)'
-  };
-
-  // All completed series/anime EXCEPT cancelled definitively
-  const candidates = mediaList.filter(m =>
+  // Candidates: completed series/anime not cancelled
+  let candidates = mediaList.filter(m =>
     m.type !== 'movie' &&
     m.status === 'completed' &&
     m.continuation !== 'cancelled'
-  ).sort((a,b) => {
-    // Sort: unknown first, then no, then rumor, then confirmed, then airing
-    const order = { unknown:0, no:1, rumor:2, confirmed:3, airing:4 };
-    return (order[a.continuation||'unknown']||0) - (order[b.continuation||'unknown']||0) || a.title.localeCompare(b.title);
+  );
+
+  // Apply filter
+  if (remindersFilter === 'due')   candidates = candidates.filter(m => isDue(m));
+  if (remindersFilter === 'set')   candidates = candidates.filter(m => m.reminder?.interval > 0);
+  if (remindersFilter === 'unset') candidates = candidates.filter(m => !m.reminder || !m.reminder.interval);
+
+  // Sort: due first, then by nextDue asc, then unset alphabetically
+  candidates.sort((a,b) => {
+    const aDue = isDue(a) ? 0 : (a.reminder?.nextDue ? 1 : 2);
+    const bDue = isDue(b) ? 0 : (b.reminder?.nextDue ? 1 : 2);
+    if (aDue !== bDue) return aDue - bDue;
+    if (a.reminder?.nextDue && b.reminder?.nextDue) return a.reminder.nextDue - b.reminder.nextDue;
+    return a.title.localeCompare(b.title);
   });
 
-  // Group by continuation status
-  const groups = {};
-  candidates.forEach(m => {
-    const key = m.continuation || 'unknown';
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(m);
-  });
+  const totalDue   = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled' && isDue(m)).length;
+  const totalSet   = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled' && m.reminder?.interval > 0).length;
+  const totalUnset = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled' && (!m.reminder || !m.reminder.interval)).length;
+  const total      = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled').length;
+
+  const filterBtns = [
+    { key:'all',   label:`Todos (${total})` },
+    { key:'due',   label:`🔔 Vencidos (${totalDue})` },
+    { key:'set',   label:`⏰ Con aviso (${totalSet})` },
+    { key:'unset', label:`— Sin aviso (${totalUnset})` },
+  ].map(b => {
+    const active = remindersFilter === b.key;
+    return `<button onclick="remindersFilter='${b.key}';renderReminders()"
+      style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-bg)':'none'};color:${active?'var(--accent-text)':'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${b.label}</button>`;
+  }).join('');
+
+  const contOptLabels = { unknown:'❓ Sin noticias', rumor:'👂 Rumor', no:'⏸ Sin cont.', confirmed:'✅ Confirmada', airing:'📺 En emisión', cancelled:'❌ Cancelada' };
 
   if (candidates.length === 0) {
-    el.innerHTML = '<div class="notif-empty"><i class="ti ti-check"></i>No hay nada pendiente de revisar.</div>';
-    updateRemindersBadge(0);
+    el.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem">${filterBtns}</div><div class="notif-empty"><i class="ti ti-check"></i>Nada aquí.</div>`;
+    updateRemindersBadge();
     return;
   }
 
-  // Priority: unknown and no first (need checking), then rumor, confirmed, airing
-  const order = ['unknown','no','rumor','confirmed','airing'];
-  let html = '';
+  const rows = candidates.map(m => {
+    const poster = getCardPoster(m);
+    const posterHTML = poster
+      ? `<img src="${poster}" style="width:40px;height:58px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
+      : `<div style="width:40px;height:58px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px">${TYPE_EMOJI[m.type]}</div>`;
 
-  order.forEach(key => {
-    const items = groups[key];
-    if (!items || items.length === 0) return;
-    const label = CONT_LABELS[key] || key;
-    html += `<div class="notif-section-label" style="color:${CONT_COLOR[key]}">${label} (${items.length})</div>`;
-    html += items.map(m => {
-      const poster = getCardPoster(m);
-      const posterHTML = poster
-        ? `<img src="${poster}" style="width:40px;height:56px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
-        : `<div style="width:40px;height:56px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px">${TYPE_EMOJI[m.type]}</div>`;
+    const due     = isDue(m);
+    const days    = daysUntilDue(m);
+    const interval= m.reminder?.interval || 0;
+    const lastStr = m.reminder?.lastChecked
+      ? new Date(m.reminder.lastChecked).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'})
+      : '—';
 
-      const tmdbLink = m.tmdbId
-        ? `<a href="https://www.themoviedb.org/tv/${m.tmdbId}" target="_blank" style="font-size:10px;color:var(--accent-text);text-decoration:none" title="Ver en TMDB">TMDB ↗</a>`
-        : '';
+    let dueBadge = '';
+    if (due) {
+      dueBadge = `<span style="font-size:10px;background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);border-radius:4px;padding:1px 6px;white-space:nowrap">¡Revisar!</span>`;
+    } else if (days !== null && days > 0) {
+      const color = days <= 14 ? 'var(--warning-text)' : 'var(--text-muted)';
+      dueBadge = `<span style="font-size:10px;color:${color}">en ${days}d</span>`;
+    }
 
-      const contOpts = ['unknown','rumor','no','confirmed','airing','cancelled'].map(v => {
-        const optLabels = { unknown:'❓ Sin noticias', rumor:'👂 Rumor', no:'⏸ Sin cont.', confirmed:'✅ Confirmada', airing:'📺 En emisión', cancelled:'❌ Cancelada' };
-        return `<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${optLabels[v]}</option>`;
-      }).join('');
+    const intervalOpts = REMINDER_INTERVALS.map(opt =>
+      `<option value="${opt.value}" ${interval===opt.value?'selected':''}>${opt.label}</option>`
+    ).join('');
 
-      return `<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+    const contOpts = ['unknown','rumor','no','confirmed','airing','cancelled'].map(v =>
+      `<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${contOptLabels[v]}</option>`
+    ).join('');
+
+    const tmdbLink = m.tmdbId
+      ? `<a href="https://www.themoviedb.org/tv/${m.tmdbId}" target="_blank" style="font-size:10px;color:var(--accent-text);text-decoration:none">TMDB ↗</a>`
+      : '';
+
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;gap:10px;align-items:flex-start">
         ${posterHTML}
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">${TYPE_LABEL[m.type]} · ${m.year||'—'} · ${m.seasons?.length||1} temp. ${tmdbLink}</div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px">
+            <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">${m.title}</span>
+            ${dueBadge}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${TYPE_LABEL[m.type]} · ${m.year||'—'} ${tmdbLink}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <select onchange="setReminder('${m.id}',this.value)"
+              style="font-size:11px;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+              ${intervalOpts}
+            </select>
+            <select onchange="updateContinuation('${m.id}',this.value);renderReminders()"
+              style="font-size:11px;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+              ${contOpts}
+            </select>
+            ${interval > 0 ? `<button onclick="markReminderChecked('${m.id}')"
+              style="font-size:11px;padding:3px 9px;border-radius:8px;border:1px solid var(--success);background:var(--success-bg);color:var(--success);cursor:pointer;font-family:inherit;white-space:nowrap">
+              ✓ Ya revisé</button>` : ''}
+          </div>
+          ${interval > 0 ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Última revisión: ${lastStr}</div>` : ''}
         </div>
-        <select onchange="updateContinuation('${m.id}',this.value);renderReminders()"
-          style="font-size:11px;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer;max-width:130px">
-          ${contOpts}
-        </select>
-      </div>`;
-    }).join('');
-  });
+      </div>
+    </div>`;
+  }).join('');
 
-  el.innerHTML = html;
-  updateRemindersBadge(groups['unknown']?.length || 0);
+  el.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem">${filterBtns}</div>${rows}`;
+  updateRemindersBadge();
 }
 
-function updateRemindersBadge(count) {
+function updateRemindersBadge() {
+  const due = mediaList.filter(m =>
+    m.type !== 'movie' && m.status === 'completed' &&
+    m.continuation !== 'cancelled' && isDue(m)
+  ).length;
   const el = document.getElementById('badge-reminders');
-  if (el) el.textContent = count > 0 ? count : mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled').length;
+  if (el) el.textContent = due > 0 ? due : mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled').length;
 }
 
 // Update badge on load

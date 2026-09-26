@@ -11,6 +11,7 @@ const HEADERS = {
 
 // ── STATE ──────────────────────────────────────────────────────────────────
 let mediaList = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
+let _supabaseLoaded = false; // prevent saveData before Supabase loads
 let settings  = JSON.parse(localStorage.getItem('medialog_settings') || '{"apiKey":"","lang":"es-ES"}');
 let editingId = null;
 let currentSection = 'all';
@@ -29,23 +30,23 @@ const CONT_LABEL = { unknown: '', no: 'Sin noticias', rumor: 'Rumor', confirmed:
 
 // ── SUPABASE SYNC ──────────────────────────────────────────────────────────
 function recalcRating(m) {
-  // Work on a copy to avoid mutating Supabase data
-  m = { ...m, seasons: m.seasons ? m.seasons.map(s => ({...s})) : [] };
-  // Clean corrupt ratings
-  if (m.rating && (String(m.rating).includes('object') || String(m.rating).includes('Promise'))) {
-    m.rating = '';
+  // Deep copy — NEVER mutate the original object from Supabase
+  const copy = JSON.parse(JSON.stringify(m));
+  // Clean corrupt ratings only
+  if (copy.rating && (String(copy.rating).includes('object') || String(copy.rating).includes('Promise'))) {
+    copy.rating = '';
   }
-  m.seasons.forEach(s => {
+  (copy.seasons||[]).forEach(s => {
     if (s.rating && (String(s.rating).includes('object') || String(s.rating).includes('Promise'))) {
       s.rating = '';
     }
   });
-  // Recalculate as average of season ratings
-  if (m.type !== 'movie' && m.seasons.length > 0) {
-    const ratings = m.seasons.map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
-    if (ratings.length > 0) m.rating = Math.round(ratings.reduce((a,b)=>a+b,0)/ratings.length*10)/10;
+  // Recalculate rating as average of season ratings
+  if (copy.type !== 'movie' && (copy.seasons||[]).length > 0) {
+    const ratings = (copy.seasons||[]).map(s => parseFloat(s.rating)).filter(r => !isNaN(r) && r > 0);
+    if (ratings.length > 0) copy.rating = Math.round(ratings.reduce((a,b)=>a+b,0)/ratings.length*10)/10;
   }
-  return m;
+  return copy;
 }
 
 // Decide qué versión de un item tiene más info (más episodios vistos + más temporadas + tiene poster)
@@ -96,11 +97,13 @@ async function loadFromSupabase() {
     // Upload offline-created items
     for (const entry of toSync) await saveToSupabase(entry);
 
+    _supabaseLoaded = true;
     setSyncStatus('ok');
   } catch(e) {
     console.warn('Supabase load failed, using local data', e);
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
     if (local.length > 0) mediaList = local.filter(m => m.id && m.title && m.type);
+    _supabaseLoaded = true; // allow saves even on error, using local data
     setSyncStatus('error');
   }
   render();
@@ -113,6 +116,7 @@ async function saveToSupabase(entry) {
     console.warn('Skipping corrupt entry', entry);
     return;
   }
+  console.log('[Supabase] Saving:', entry.title, '| continuation:', entry.continuation, '| seasons:', entry.seasons?.length);
   setSyncStatus('syncing');
   try {
     const res = await fetch(DB, {
@@ -799,6 +803,7 @@ async function globalTMDBRefresh() {
     const poster = getCardPoster(m);
     const currNextId = curr.nextEp ? `${curr.nextEp.season_number}-${curr.nextEp.episode_number}` : null;
     const prevKnown = !!prev.status; // only compare if we had previous data
+    const suggestedCont = curr.suggestedCont || null;
 
     // Nueva temporada confirmada
     if (prevKnown && !prev.nextEpId && currNextId) {
@@ -1200,30 +1205,15 @@ async function fetchTMDBLive(m) {
       inProd:     det.in_production,
       updated:    Date.now(),
     };
-    // Auto-update continuation status in library
-    // NEVER overwrite 'rumor' — that's manual info TMDB doesn't have
-    const entry = mediaList.find(x => x.id === m.id);
-    if (entry && entry.continuation !== 'rumor') {
-      let newCont = entry.continuation;
-      // Only update to 'no' if TMDB explicitly says ended/canceled AND
-      // current status is not a stronger confirmation
-      if (det.status === 'Canceled' && entry.continuation !== 'confirmed' && entry.continuation !== 'airing' && entry.continuation !== 'rumor') {
-        newCont = 'cancelled';
-      } else if (det.status === 'Ended' && entry.continuation !== 'confirmed' && entry.continuation !== 'airing' && entry.continuation !== 'rumor') {
-        newCont = 'no';
-      } else if (det.next_episode_to_air) {
-        newCont = 'airing';
-      } else if (det.in_production) {
-        newCont = 'confirmed';
-      }
-      if (newCont !== entry.continuation) {
-        entry.continuation = newCont;
-        // Only update local — never auto-save to Supabase from TMDB refresh
-        // User actions (edit, quickRating, changeEp) are the only things that write to Supabase
-        saveData();
-        render(); // refresh tags on cards
-      }
-    }
+    // Store TMDB suggestion in cache only — NEVER modify mediaList from TMDB auto-update
+    // The user is the only one who can change continuation via UI
+    // We just store what TMDB says for display in the updates panel
+    const tmdbSuggestedCont = det.status === 'Canceled' ? 'cancelled'
+      : det.status === 'Ended' ? 'no'
+      : det.next_episode_to_air ? 'airing'
+      : det.in_production ? 'confirmed'
+      : null;
+    if (tmdbSuggestedCont) tmdbCache[cacheKey].suggestedCont = tmdbSuggestedCont;
   } catch(e) {}
 }
 
@@ -1632,7 +1622,8 @@ function formatDate(dateStr) {
 // Auto-refresh TMDB data every 6h while page is open
 setInterval(() => { if (settings.apiKey) refreshAll(); }, 6 * 60 * 60 * 1000);
 // Initial refresh after 2s (let page load first)
-setTimeout(() => { if (settings.apiKey) refreshAll(); }, 2000);
+// Wait for Supabase to load before first TMDB refresh
+setTimeout(() => { if (settings.apiKey && _supabaseLoaded) refreshAll(); }, 3000);
 
 // ════════════════════════════════════════════════════════════════
 // SMART SEASON COMPLETION
@@ -1863,84 +1854,139 @@ function closeContinuationEditorBg(e) {
   if (e.target.id === 'cont-editor-modal') closeContinuationEditor();
 }
 
-// State for continuation editor filters
-let contEditorSearch = '';
-let contEditorType = 'all';
-let contEditorFilter = 'all';
+// ── SHARED CONSTANTS ──────────────────────────────────────────────────────
+const CE_CONT_OPTIONS = ['unknown','rumor','no','cancelled','confirmed','airing'];
+const CE_CONT_LABELS  = {
+  unknown:'❓ Sin noticias', rumor:'👂 Rumor / filtración',
+  no:'⏸ Sin cont. por ahora', cancelled:'❌ Cancelada definitivamente',
+  confirmed:'✅ Confirmada', airing:'📺 Ya en emisión'
+};
+
+// ── SHARED UI HELPERS ──────────────────────────────────────────────────────
+function sharedSearchBar(val, onInput, typeProp, typeVal, typeCb, extraSelects='') {
+  return `<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:6px;background:var(--surface-3);border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;flex:1;min-width:140px">
+      <i class="ti ti-search" style="color:var(--text-muted);font-size:13px"></i>
+      <input type="text" placeholder="Buscar..." value="${val}"
+        oninput="${onInput}"
+        style="border:none;background:none;outline:none;font-size:13px;color:var(--text-primary);width:100%;font-family:inherit">
+    </div>
+    <select onchange="${typeCb}"
+      style="font-size:12px;padding:5px 8px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+      <option value="all" ${typeVal==='all'?'selected':''}>Todo</option>
+      <option value="series" ${typeVal==='series'?'selected':''}>📺 Series</option>
+      <option value="anime" ${typeVal==='anime'?'selected':''}>⛩️ Anime</option>
+    </select>
+    ${extraSelects}
+  </div>`;
+}
+
+function filterToggleBtn(key, label, activeVal, cb, excludeSet) {
+  const included = activeVal === key;
+  const excluded = excludeSet?.has(key);
+  let bg, border, color, title;
+  if (included)  { bg='var(--accent-bg)';  border='var(--accent)';  color='var(--accent-text)'; title='Clic para excluir'; }
+  else if (excluded) { bg='var(--danger-bg)'; border='var(--danger)'; color='var(--danger-text)'; title='Clic para quitar filtro'; }
+  else           { bg='none'; border='var(--border)'; color='var(--text-secondary)'; title='Clic para incluir solo esto'; }
+  const prefix = excluded ? '✕ ' : '';
+  return `<button onclick="${cb}('${key}')" title="${title}"
+    style="font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid ${border};background:${bg};color:${color};cursor:pointer;white-space:nowrap;font-family:inherit">${prefix}${label}</button>`;
+}
+
+function contSelectHTML(m, onChange) {
+  return `<select onchange="${onChange}"
+    style="font-size:11px;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+    ${CE_CONT_OPTIONS.map(v=>`<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${CE_CONT_LABELS[v]}</option>`).join('')}
+  </select>`;
+}
+
+function reminderSelectHTML(m, onChange) {
+  const interval = m.reminder?.interval ?? -1;
+  return `<select onchange="${onChange}"
+    style="font-size:11px;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
+    <option value="-1" ${interval===-1?'selected':''}>⏰ Sin aviso</option>
+    ${REMINDER_INTERVALS.filter(r=>r.value>0).map(r=>`<option value="${r.value}" ${interval===r.value?'selected':''}>${r.label}</option>`).join('')}
+  </select>`;
+}
+
+function posterThumb(m, w=36, h=52) {
+  const p = getCardPoster(m);
+  return p
+    ? `<img src="${p}" style="width:${w}px;height:${h}px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
+    : `<div style="width:${w}px;height:${h}px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:${Math.floor(h/3)}px">${TYPE_EMOJI[m.type]}</div>`;
+}
+
+// ── CONTINUATION EDITOR ────────────────────────────────────────────────────
+let ceSearch = '';
+let ceType   = 'all';
+let ceFilter = 'all';        // 'all' or a cont value to INCLUDE
+let ceExclude = new Set();   // cont values to EXCLUDE
 
 function renderContinuationEditor() {
-  const CONT_OPTIONS = ['unknown','rumor','no','cancelled','confirmed','airing'];
-  const CONT_LABELS  = {
-    unknown:'❓ Sin noticias', rumor:'👂 Rumor / filtración',
-    no:'⏸ Sin continuación por ahora', cancelled:'❌ Cancelada definitivamente',
-    confirmed:'✅ Confirmada', airing:'📺 Ya en emisión'
-  };
-
-  // Apply filters
   let list = mediaList.filter(m => m.type !== 'movie');
-  if (contEditorType !== 'all') list = list.filter(m => m.type === contEditorType);
-  if (contEditorFilter !== 'all') list = list.filter(m => (m.continuation||'unknown') === contEditorFilter);
-  if (contEditorSearch) {
-    const q = contEditorSearch.toLowerCase();
-    list = list.filter(m => m.title.toLowerCase().includes(q));
-  }
+  if (ceType !== 'all') list = list.filter(m => m.type === ceType);
+  if (ceFilter !== 'all') list = list.filter(m => (m.continuation||'unknown') === ceFilter);
+  if (ceExclude.size > 0) list = list.filter(m => !ceExclude.has(m.continuation||'unknown'));
+  if (ceSearch) { const q=ceSearch.toLowerCase(); list=list.filter(m=>m.title.toLowerCase().includes(q)); }
   list.sort((a,b) => a.title.localeCompare(b.title));
 
+  const total = mediaList.filter(m=>m.type!=='movie');
   const counts = {};
-  CONT_OPTIONS.forEach(v => { counts[v] = mediaList.filter(m => m.type !== 'movie' && (m.continuation||'unknown') === v).length; });
+  CE_CONT_OPTIONS.forEach(v => { counts[v] = total.filter(m=>(m.continuation||'unknown')===v).length; });
 
-  const filterBtns = ['all','unknown','rumor','no','cancelled','confirmed','airing'].map(v => {
-    const label = v === 'all' ? `Todos (${mediaList.filter(m=>m.type!=='movie').length})` : `${CONT_LABELS[v]||v} (${counts[v]||0})`;
-    const active = contEditorFilter === v;
-    return `<button onclick="setContFilter('${v}')" style="font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-bg)':'none'};color:${active?'var(--accent-text)':'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${label}</button>`;
+  const filterBtns = ['all',...CE_CONT_OPTIONS].map(v => {
+    const label = v==='all' ? `Todos (${total.length})` : `${CE_CONT_LABELS[v]} (${counts[v]||0})`;
+    return filterToggleBtn(v, label, ceFilter, 'setCeFilter', ceExclude);
   }).join('');
 
-  const header = `
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <div style="display:flex;align-items:center;gap:6px;background:var(--surface-3);border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;flex:1">
-        <i class="ti ti-search" style="color:var(--text-muted);font-size:13px"></i>
-        <input type="text" placeholder="Buscar..." value="${contEditorSearch}"
-          oninput="contEditorSearch=this.value;renderContinuationEditor()"
-          style="border:none;background:none;outline:none;font-size:13px;color:var(--text-primary);width:100%;font-family:inherit">
-      </div>
-      <select onchange="contEditorType=this.value;renderContinuationEditor()"
-        style="font-size:12px;padding:5px 8px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
-        <option value="all" ${contEditorType==='all'?'selected':''}>Todo</option>
-        <option value="series" ${contEditorType==='series'?'selected':''}>Series</option>
-        <option value="anime" ${contEditorType==='anime'?'selected':''}>Anime</option>
-      </select>
-    </div>
-    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
-      ${filterBtns}
-    </div>
-    ${list.length === 0 ? '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:1.5rem">Sin resultados</p>' : ''}`;
-
   const rows = list.map(m => {
-    const opts = CONT_OPTIONS.map(v =>
-      `<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${CONT_LABELS[v]}</option>`
-    ).join('');
-    const poster = getCardPoster(m);
-    const posterHTML = poster
-      ? `<img src="${poster}" style="width:36px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
-      : `<div style="width:36px;height:52px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${TYPE_EMOJI[m.type]}</div>`;
+    const due = isDue(m);
+    const days = daysUntilDue(m);
+    let reminderInfo = '';
+    if (due) reminderInfo = `<span style="font-size:10px;background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);border-radius:4px;padding:1px 5px">¡Revisar!</span>`;
+    else if (days !== null) reminderInfo = `<span style="font-size:10px;color:var(--text-muted)">aviso en ${days}d</span>`;
+
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-      ${posterHTML}
+      ${posterThumb(m)}
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.title}</div>
         <div style="font-size:11px;color:var(--text-muted)">${TYPE_LABEL[m.type]} · ${m.year||'—'}</div>
+        <div style="display:flex;gap:5px;align-items:center;margin-top:4px;flex-wrap:wrap">
+          ${reminderInfo}
+        </div>
       </div>
-      <select onchange="updateContinuation('${m.id}',this.value)"
-        style="font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
-        ${opts}
-      </select>
+      <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+        ${contSelectHTML(m, `updateContinuation('${m.id}',this.value);renderContinuationEditor()`)}
+        ${reminderSelectHTML(m, `setReminder('${m.id}',this.value);renderContinuationEditor()`)}
+        ${due ? `<button onclick="markReminderChecked('${m.id}');renderContinuationEditor()"
+          style="font-size:10px;padding:2px 7px;border-radius:6px;border:1px solid var(--success);background:var(--success-bg);color:var(--success);cursor:pointer;font-family:inherit">✓ Revisado</button>` : ''}
+      </div>
     </div>`;
   }).join('');
 
-  document.getElementById('cont-editor-list').innerHTML = header + rows;
+  const empty = list.length===0 ? '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:1.5rem">Sin resultados</p>' : '';
+
+  document.getElementById('cont-editor-list').innerHTML =
+    sharedSearchBar(ceSearch, 'ceSearch=this.value;renderContinuationEditor()', 'ceType', ceType, 'ceType=this.value;renderContinuationEditor()') +
+    `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">${filterBtns}</div>` +
+    (ceExclude.size>0 ? `<div style="font-size:11px;color:var(--danger);margin-bottom:8px">Excluyendo: ${[...ceExclude].map(v=>CE_CONT_LABELS[v]||v).join(', ')} · <button onclick="ceExclude=new Set();renderContinuationEditor()" style="font-size:11px;color:var(--accent-text);background:none;border:none;cursor:pointer;font-family:inherit">Limpiar</button></div>` : '') +
+    empty + rows;
 }
 
-function setContFilter(v) {
-  contEditorFilter = v;
+function setCeFilter(v) {
+  if (v === 'all') { ceFilter = 'all'; ceExclude = new Set(); }
+  else if (ceFilter === v) {
+    // Currently included → switch to exclude
+    ceFilter = 'all';
+    ceExclude.add(v);
+  } else if (ceExclude.has(v)) {
+    // Currently excluded → clear it
+    ceExclude.delete(v);
+  } else {
+    // Not active → include only this
+    ceFilter = v;
+    ceExclude = new Set();
+  }
   renderContinuationEditor();
 }
 
@@ -2017,119 +2063,109 @@ function daysUntilDue(m) {
 
 let remindersFilter = 'all'; // 'all' | 'due' | 'set' | 'unset'
 
+// Reminders filter state
+let rrSearch='';
+let rrType='all';
+let rrStatus='all';
+let rrRemind='all';
+
 function renderReminders() {
   const el = document.getElementById('reminders-list');
   if (!el) return;
 
-  // Candidates: completed series/anime not cancelled
+  // All completed series/anime not cancelled
   let candidates = mediaList.filter(m =>
-    m.type !== 'movie' &&
-    m.status === 'completed' &&
-    m.continuation !== 'cancelled'
+    m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled'
   );
 
-  // Apply filter
-  if (remindersFilter === 'due')   candidates = candidates.filter(m => isDue(m));
-  if (remindersFilter === 'set')   candidates = candidates.filter(m => m.reminder?.interval > 0);
-  if (remindersFilter === 'unset') candidates = candidates.filter(m => !m.reminder || !m.reminder.interval);
+  // Apply filters
+  if (rrType   !== 'all')   candidates = candidates.filter(m => m.type === rrType);
+  if (rrStatus !== 'all')   candidates = candidates.filter(m => (m.continuation||'unknown') === rrStatus);
+  if (rrRemind === 'due')   candidates = candidates.filter(m => isDue(m));
+  if (rrRemind === 'set')   candidates = candidates.filter(m => m.reminder?.interval > 0);
+  if (rrRemind === 'unset') candidates = candidates.filter(m => !m.reminder?.interval);
+  if (rrSearch) { const q=rrSearch.toLowerCase(); candidates=candidates.filter(m=>m.title.toLowerCase().includes(q)); }
 
-  // Sort: due first, then by nextDue asc, then unset alphabetically
   candidates.sort((a,b) => {
-    const aDue = isDue(a) ? 0 : (a.reminder?.nextDue ? 1 : 2);
-    const bDue = isDue(b) ? 0 : (b.reminder?.nextDue ? 1 : 2);
-    if (aDue !== bDue) return aDue - bDue;
+    const aDue = isDue(a)?0:(a.reminder?.nextDue?1:2);
+    const bDue = isDue(b)?0:(b.reminder?.nextDue?1:2);
+    if (aDue!==bDue) return aDue-bDue;
     if (a.reminder?.nextDue && b.reminder?.nextDue) return a.reminder.nextDue - b.reminder.nextDue;
     return a.title.localeCompare(b.title);
   });
 
-  const totalDue   = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled' && isDue(m)).length;
-  const totalSet   = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled' && m.reminder?.interval > 0).length;
-  const totalUnset = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled' && (!m.reminder || !m.reminder.interval)).length;
-  const total      = mediaList.filter(m => m.type !== 'movie' && m.status === 'completed' && m.continuation !== 'cancelled').length;
+  const base = mediaList.filter(m=>m.type!=='movie'&&m.status==='completed'&&m.continuation!=='cancelled');
+  const contCounts = {};
+  CE_CONT_OPTIONS.forEach(v => { contCounts[v] = base.filter(m=>(m.continuation||'unknown')===v).length; });
 
-  const filterBtns = [
-    { key:'all',   label:`Todos (${total})` },
-    { key:'due',   label:`🔔 Vencidos (${totalDue})` },
-    { key:'set',   label:`⏰ Con aviso (${totalSet})` },
-    { key:'unset', label:`— Sin aviso (${totalUnset})` },
-  ].map(b => {
-    const active = remindersFilter === b.key;
-    return `<button onclick="remindersFilter='${b.key}';renderReminders()"
-      style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-bg)':'none'};color:${active?'var(--accent-text)':'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${b.label}</button>`;
+  // Filter pills row 1: cont status
+  const contBtns = ['all',...CE_CONT_OPTIONS.filter(v=>v!=='cancelled')].map(v => {
+    const label = v==='all' ? `Todos (${base.length})` : `${CE_CONT_LABELS[v]} (${contCounts[v]||0})`;
+    const active = rrStatus===v;
+    return `<button onclick="rrStatus='${v}';renderReminders()"
+      style="font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-bg)':'none'};color:${active?'var(--accent-text)':'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${label}</button>`;
   }).join('');
 
-  const contOptLabels = { unknown:'❓ Sin noticias', rumor:'👂 Rumor', no:'⏸ Sin cont.', confirmed:'✅ Confirmada', airing:'📺 En emisión', cancelled:'❌ Cancelada' };
-
-  if (candidates.length === 0) {
-    el.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem">${filterBtns}</div><div class="notif-empty"><i class="ti ti-check"></i>Nada aquí.</div>`;
-    updateRemindersBadge();
-    return;
-  }
+  // Filter pills row 2: reminder status
+  const totalDue   = base.filter(m=>isDue(m)).length;
+  const totalSet   = base.filter(m=>m.reminder?.interval>0).length;
+  const totalUnset = base.filter(m=>!m.reminder?.interval).length;
+  const rrBtns = [
+    {key:'all',   label:`Todos`},
+    {key:'due',   label:`🔔 Vencidos (${totalDue})`},
+    {key:'set',   label:`⏰ Con aviso (${totalSet})`},
+    {key:'unset', label:`— Sin aviso (${totalUnset})`},
+  ].map(b => {
+    const active = rrRemind===b.key;
+    return `<button onclick="rrRemind='${b.key}';renderReminders()"
+      style="font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-bg)':'none'};color:${active?'var(--accent-text)':'var(--text-secondary)'};cursor:pointer;white-space:nowrap;font-family:inherit">${b.label}</button>`;
+  }).join('');
 
   const rows = candidates.map(m => {
-    const poster = getCardPoster(m);
-    const posterHTML = poster
-      ? `<img src="${poster}" style="width:40px;height:58px;object-fit:cover;border-radius:6px;flex-shrink:0" alt="">`
-      : `<div style="width:40px;height:58px;background:var(--surface-3);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px">${TYPE_EMOJI[m.type]}</div>`;
-
-    const due     = isDue(m);
-    const days    = daysUntilDue(m);
-    const interval= m.reminder?.interval || 0;
-    const lastStr = m.reminder?.lastChecked
+    const due  = isDue(m);
+    const days = daysUntilDue(m);
+    const interval = m.reminder?.interval ?? -1;
+    const lastStr  = m.reminder?.lastChecked
       ? new Date(m.reminder.lastChecked).toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit'})
-      : '—';
-
-    let dueBadge = '';
-    if (due) {
-      dueBadge = `<span style="font-size:10px;background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);border-radius:4px;padding:1px 6px;white-space:nowrap">¡Revisar!</span>`;
-    } else if (days !== null && days > 0) {
-      const color = days <= 14 ? 'var(--warning-text)' : 'var(--text-muted)';
-      dueBadge = `<span style="font-size:10px;color:${color}">en ${days}d</span>`;
-    }
-
-    const intervalOpts = REMINDER_INTERVALS.map(opt =>
-      `<option value="${opt.value}" ${interval===opt.value?'selected':''}>${opt.label}</option>`
-    ).join('');
-
-    const contOpts = ['unknown','rumor','no','confirmed','airing','cancelled'].map(v =>
-      `<option value="${v}" ${(m.continuation||'unknown')===v?'selected':''}>${contOptLabels[v]}</option>`
-    ).join('');
-
+      : null;
     const tmdbLink = m.tmdbId
       ? `<a href="https://www.themoviedb.org/tv/${m.tmdbId}" target="_blank" style="font-size:10px;color:var(--accent-text);text-decoration:none">TMDB ↗</a>`
       : '';
 
-    return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
-      <div style="display:flex;gap:10px;align-items:flex-start">
-        ${posterHTML}
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px">
-            <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">${m.title}</span>
-            ${dueBadge}
-          </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${TYPE_LABEL[m.type]} · ${m.year||'—'} ${tmdbLink}</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <select onchange="setReminder('${m.id}',this.value)"
-              style="font-size:11px;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
-              ${intervalOpts}
-            </select>
-            <select onchange="updateContinuation('${m.id}',this.value);renderReminders()"
-              style="font-size:11px;padding:3px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-primary);font-family:inherit;cursor:pointer">
-              ${contOpts}
-            </select>
-            ${interval > 0 ? `<button onclick="markReminderChecked('${m.id}')"
-              style="font-size:11px;padding:3px 9px;border-radius:8px;border:1px solid var(--success);background:var(--success-bg);color:var(--success);cursor:pointer;font-family:inherit;white-space:nowrap">
-              ✓ Ya revisé</button>` : ''}
-          </div>
-          ${interval > 0 ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Última revisión: ${lastStr}</div>` : ''}
+    let dueBadge = '';
+    if (due) dueBadge = `<span style="font-size:10px;background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);border-radius:4px;padding:1px 5px">¡Revisar!</span>`;
+    else if (days!==null && days>=0) dueBadge = `<span style="font-size:10px;color:${days<=14?'var(--warning-text)':'var(--text-muted)'}">aviso en ${days}d</span>`;
+
+    return `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)">
+      ${posterThumb(m, 40, 58)}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">
+          <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">${m.title}</span>
+          ${dueBadge}
         </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px">${TYPE_LABEL[m.type]} · ${m.year||'—'} ${tmdbLink}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">
+          ${contSelectHTML(m, `updateContinuation('${m.id}',this.value);renderReminders()`)}
+          ${reminderSelectHTML(m, `setReminder('${m.id}',this.value);renderReminders()`)}
+          ${due ? `<button onclick="markReminderChecked('${m.id}');renderReminders()"
+            style="font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid var(--success);background:var(--success-bg);color:var(--success);cursor:pointer;font-family:inherit">✓ Revisado</button>` : ''}
+        </div>
+        ${lastStr ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Última revisión: ${lastStr}</div>` : ''}
       </div>
     </div>`;
   }).join('');
 
-  el.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem">${filterBtns}</div>${rows}`;
+  const empty = candidates.length===0 ? '<div class="notif-empty"><i class="ti ti-check"></i>Sin resultados.</div>' : '';
+
+  el.innerHTML =
+    sharedSearchBar(rrSearch, 'rrSearch=this.value;renderReminders()', 'rrType', rrType, 'rrType=this.value;renderReminders()') +
+    `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">${contBtns}</div>` +
+    `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">${rrBtns}</div>` +
+    empty + rows;
+
   updateRemindersBadge();
 }
+
 
 function updateRemindersBadge() {
   const due = mediaList.filter(m =>

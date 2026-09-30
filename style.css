@@ -602,3 +602,10 @@ a { color: var(--accent-text); }
 
 /* Cancelled continuation tag */
 .tag-cont-cancelled { background: var(--danger-bg); color: var(--danger-text); }
+
+/* ── MANGA ── */
+:root {
+  --manga-color: #e85d04;
+  --manga-bg: rgba(232,93,4,0.15);
+  --manga-text: #ff8c42;
+}

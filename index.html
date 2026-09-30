@@ -23,6 +23,7 @@
       <div class="nav-item" onclick="setSection('series')" id="nav-series"><i class="ti ti-device-tv-old"></i> Series <span class="badge" id="badge-series">0</span></div>
       <div class="nav-item" onclick="setSection('movie')" id="nav-movie"><i class="ti ti-movie"></i> Películas <span class="badge" id="badge-movie">0</span></div>
       <div class="nav-item" onclick="setSection('anime')" id="nav-anime"><i class="ti ti-stars"></i> Anime <span class="badge" id="badge-anime">0</span></div>
+      <div class="nav-item" onclick="setSection('manga')" id="nav-manga"><i class="ti ti-book"></i> Manga <span class="badge" id="badge-manga">0</span></div>
       <div class="sidebar-label" style="margin-top:1.25rem">Estado</div>
       <div class="nav-item" onclick="setFilter('watching')" id="nav-watching"><i class="ti ti-player-play"></i> Viendo <span class="badge" id="badge-watching">0</span></div>
       <div class="nav-item" onclick="setFilter('completed')" id="nav-completed"><i class="ti ti-circle-check"></i> Completadas <span class="badge" id="badge-completed">0</span></div>
@@ -150,6 +151,7 @@
           <option value="series">Serie</option>
           <option value="anime">Anime</option>
           <option value="movie">Película</option>
+          <option value="manga">Manga</option>
         </select>
       </div>
       <div class="field">
@@ -208,6 +210,50 @@
             <input type="checkbox" id="f-is-anime-movie">
             <span>¿Es película de anime?</span>
           </label>
+        </div>
+      </div>
+
+      <!-- MANGA FIELDS -->
+      <div id="manga-section" style="display:none">
+        <div class="seasons-header">
+          <span class="field-section-title">Tomos</span>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label>Editorial España</label>
+            <input id="f-publisher" type="text" placeholder="Planeta, Norma, ECC, Ivrea...">
+          </div>
+          <div class="field">
+            <label>Tomos publicados (ES)</label>
+            <input id="f-vols-es" type="number" min="0" placeholder="0">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label>Tomos que tengo comprados</label>
+            <input id="f-vols-owned" type="number" min="0" placeholder="0">
+          </div>
+          <div class="field">
+            <label>Tomos leídos</label>
+            <input id="f-vols-read" type="number" min="0" placeholder="0">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label>Tomos originales (JP)</label>
+            <input id="f-vols-jp" type="number" min="0" placeholder="0">
+          </div>
+          <div class="field">
+            <label>Tomos leídos (JP)</label>
+            <input id="f-vols-jp-read" type="number" min="0" placeholder="0">
+          </div>
+        </div>
+        <div class="field">
+          <label>URL del póster</label>
+          <div class="season-poster-row">
+            <input type="url" id="f-manga-poster" placeholder="Se rellena con búsqueda" oninput="updateMiniPoster('manga',this.value)">
+            <div class="poster-mini" id="smanga-mini"><i class="ti ti-photo"></i></div>
+          </div>
         </div>
       </div>
 
@@ -336,6 +382,10 @@
   <button class="mobile-nav-item" onclick="mobileNav('anime', this)" id="mnav-anime">
     <i class="ti ti-stars"></i>
     <span>Anime</span>
+  </button>
+  <button class="mobile-nav-item" onclick="mobileNav('manga', this)" id="mnav-manga">
+    <i class="ti ti-book"></i>
+    <span>Manga</span>
   </button>
   <button class="mobile-nav-item" onclick="openModal()">
     <i class="ti ti-plus"></i>

@@ -23,8 +23,8 @@ let syncStatus = 'idle'; // idle | syncing | ok | error
 
 const TMDB_IMG   = 'https://image.tmdb.org/t/p/w342';
 const TMDB_BIG   = 'https://image.tmdb.org/t/p/w780';
-const TYPE_EMOJI = { series: '📺', anime: '⛩️', movie: '🎬' };
-const TYPE_LABEL = { series: 'Serie', anime: 'Anime', movie: 'Película' };
+const TYPE_EMOJI = { series: '📺', anime: '⛩️', movie: '🎬', manga: '📚' };
+const TYPE_LABEL = { series: 'Serie', anime: 'Anime', movie: 'Película', manga: 'Manga' };
 const STATUS_LABEL = { watching: 'Viendo', completed: 'Completada', pending: 'Pendiente', paused: 'En pausa', dropped: 'Abandonada' };
 const CONT_LABEL = { unknown: '', no: 'Sin noticias', rumor: 'Rumor', confirmed: 'Confirmada', airing: 'Ya en emisión', cancelled: 'Cancelada definitivamente' };
 
@@ -180,6 +180,7 @@ function onSearch(q) { currentSearch = q; render(); }
 function getFiltered() {
   let list = [...mediaList];
   if (currentSection === 'anime') list = list.filter(m => m.type === 'anime' || (m.type === 'movie' && m.isAnimeMovie));
+  else if (currentSection === 'manga') list = list.filter(m => m.type === 'manga');
   else if (currentSection !== 'all') list = list.filter(m => m.type === currentSection);
   if (currentFilter) list = list.filter(m => m.status === currentFilter);
   if (currentSubtype) list = list.filter(m => m.type === currentSubtype);
@@ -207,7 +208,7 @@ function contTag(c) {
 }
 
 // ── CARD ───────────────────────────────────────────────────────────────────
-function totalEpSeen(m)  { return (m.seasons||[]).reduce((a,s)=>a+(parseInt(s.epSeen)||0),0); }
+function totalEpSeen(m)  { if (m.type==='manga') return m.volsRead||0; return (m.seasons||[]).reduce((a,s)=>a+(parseInt(s.epSeen)||0),0); }
 function totalEpTotal(m) { return (m.seasons||[]).reduce((a,s)=>a+(parseInt(s.epTotal)||0),0); }
 
 function getCardPoster(m) {
@@ -221,6 +222,7 @@ function renderStats() {
   const badges = {
     all: all.length, series: all.filter(m=>m.type==='series').length,
     movie: all.filter(m=>m.type==='movie').length, anime: all.filter(m=>m.type==='anime').length,
+    manga: all.filter(m=>m.type==='manga').length,
     watching: all.filter(m=>m.status==='watching').length, completed: all.filter(m=>m.status==='completed').length,
     pending: all.filter(m=>m.status==='pending').length, paused: all.filter(m=>m.status==='paused').length,
   };
@@ -386,6 +388,15 @@ function openModal(id) {
   document.getElementById('f-movie-poster').value = m ? (m.poster||'') : '';
   document.getElementById('f-is-anime-movie').checked = m ? (m.isAnimeMovie||false) : false;
   updateMiniPoster('movie', m?.poster || '');
+  // Manga fields
+  document.getElementById('f-publisher').value    = m ? (m.publisher||'') : '';
+  document.getElementById('f-vols-es').value      = m ? (m.volsES||'') : '';
+  document.getElementById('f-vols-owned').value   = m ? (m.volsOwned||'') : '';
+  document.getElementById('f-vols-read').value    = m ? (m.volsRead||'') : '';
+  document.getElementById('f-vols-jp').value      = m ? (m.volsJP||'') : '';
+  document.getElementById('f-vols-jp-read').value = m ? (m.volsJPRead||'') : '';
+  document.getElementById('f-manga-poster').value = m ? (m.poster||'') : '';
+  updateMiniPoster('manga', m?.poster || '');
   updateModalFields();
   if (m?.seasons?.length > 0) m.seasons.forEach(s => addSeasonField(s));
   else if (!m || m.type !== 'movie') addSeasonField();
@@ -393,12 +404,14 @@ function openModal(id) {
 }
 
 function updateModalFields() {
-  const isMovie = document.getElementById('f-type').value === 'movie';
-  document.getElementById('seasons-section').style.display = isMovie ? 'none' : 'block';
+  const type = document.getElementById('f-type').value;
+  const isMovie = type === 'movie';
+  const isManga = type === 'manga';
+  document.getElementById('seasons-section').style.display    = (isMovie || isManga) ? 'none' : 'block';
   document.getElementById('movie-poster-section').style.display = isMovie ? 'block' : 'none';
-  // Show continuation for all types — movies can have sequels too
+  document.getElementById('manga-section').style.display        = isManga ? 'block' : 'none';
   const contLabel = document.querySelector('#f-continuation-wrap label');
-  if (contLabel) contLabel.textContent = isMovie ? 'Secuela / continuación' : 'Continuación';
+  if (contLabel) contLabel.textContent = isMovie ? 'Secuela / continuación' : isManga ? 'Continuación del manga' : 'Continuación';
 }
 
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }
@@ -429,8 +442,15 @@ async function saveMedia() {
     continuation: document.getElementById('f-continuation').value,
     tmdbId:       document.getElementById('f-tmdb-id').value,
     tmdbType:     document.getElementById('f-tmdb-type').value,
-    poster:       type==='movie' ? (document.getElementById('f-movie-poster').value.trim()||'') : '',
+    poster:       type==='movie' ? (document.getElementById('f-movie-poster').value.trim()||'')
+                : type==='manga' ? (document.getElementById('f-manga-poster').value.trim()||'') : '',
     isAnimeMovie: type==='movie' ? document.getElementById('f-is-anime-movie').checked : false,
+    publisher:    type==='manga' ? document.getElementById('f-publisher').value.trim() : '',
+    volsES:       type==='manga' ? (parseInt(document.getElementById('f-vols-es').value)||0) : 0,
+    volsOwned:    type==='manga' ? (parseInt(document.getElementById('f-vols-owned').value)||0) : 0,
+    volsRead:     type==='manga' ? (parseInt(document.getElementById('f-vols-read').value)||0) : 0,
+    volsJP:       type==='manga' ? (parseInt(document.getElementById('f-vols-jp').value)||0) : 0,
+    volsJPRead:   type==='manga' ? (parseInt(document.getElementById('f-vols-jp-read').value)||0) : 0,
     seasons:      type==='movie' ? [] : getSeasonData(),
     updatedAt:    Date.now(),
     addedAt:      editingId ? (mediaList.find(x=>x.id===editingId)?.addedAt || Date.now()) : Date.now(),
@@ -449,6 +469,8 @@ async function saveMedia() {
 
 // ── TMDB ───────────────────────────────────────────────────────────────────
 async function searchTMDB() {
+  const type = document.getElementById('f-type').value;
+  if (type === 'manga') { await searchMangaDex(); return; }
   const query = document.getElementById('tmdb-query').value.trim();
   if (!query) return;
   if (!settings.apiKey) { alert('Añade tu API Key de TMDB en Ajustes — gratis en themoviedb.org/settings/api'); return; }
@@ -2178,3 +2200,251 @@ function updateRemindersBadge() {
 
 // Update badge on load
 setTimeout(updateRemindersBadge, 1500);
+
+// ════════════════════════════════════════════════════════════════
+// MANGA — card, detail, search
+// ════════════════════════════════════════════════════════════════
+
+// Override renderCard to handle manga
+const _origRenderCard = renderCard;
+function renderCard(m) {
+  if (m.type !== 'manga') return _origRenderCard(m);
+  return renderMangaCard(m);
+}
+
+function renderMangaCard(m) {
+  const poster = m.poster || '';
+  const volsRead  = m.volsRead  || 0;
+  const volsOwned = m.volsOwned || 0;
+  const volsES    = m.volsES    || 0;
+  const pctRead   = volsES > 0 ? Math.round(volsRead/volsES*100) : 0;
+  const pctOwned  = volsES > 0 ? Math.round(volsOwned/volsES*100) : 0;
+
+  const posterHTML = poster
+    ? `<img src="${poster}" alt="${m.title}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'card-poster-placeholder\\'><span>📚</span></div>'">`
+    : `<div class="card-poster-placeholder" style="background:var(--manga-bg)"><span>📚</span><span>${m.title.slice(0,16)}</span></div>`;
+
+  return `<div class="card" onclick="openDetail('${m.id}')" role="button" tabindex="0">
+    <div class="card-poster">
+      ${posterHTML}
+      <div class="card-poster-overlay"></div>
+      <span class="card-corner" style="background:var(--manga-color);color:white">Manga</span>
+      ${m.rating ? `<span class="card-rating">★ ${m.rating}</span>` : ''}
+      <div class="card-quick">
+        <div class="card-quick-ep">
+          <button class="qbtn" onclick="quickMangaVol('${m.id}','read',-1,event)">−</button>
+          <span class="qep-label">📖 ${volsRead}/${volsES||'?'}</span>
+          <button class="qbtn" onclick="quickMangaVol('${m.id}','read',1,event)">+</button>
+        </div>
+        <div class="qrating">
+          <button class="qrating-btn" onclick="quickRating('${m.id}',-0.5,event)">−</button>
+          <span class="qrating-val">${parseFloat(m.rating)||'—'}</span>
+          <button class="qrating-btn" onclick="quickRating('${m.id}',0.5,event)">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-title">${m.title}</div>
+      <div class="card-meta">${[m.year, m.genre, m.publisher].filter(Boolean).join(' · ')}</div>
+      <div class="card-tags">${statusTag(m.status)}${contTag(m.continuation)}</div>
+      ${volsES > 0 ? `
+        <div class="progress-wrap">
+          <div class="progress-label"><span>📖 ${volsRead}/${volsES} leídos</span><span>${pctRead}%</span></div>
+          <div class="progress-bar"><div class="progress-fill fill-watching" style="width:${pctRead}%"></div></div>
+        </div>
+        ${volsOwned > 0 ? `
+        <div class="progress-wrap" style="margin-top:3px">
+          <div class="progress-label"><span>📦 ${volsOwned}/${volsES} comprados</span><span>${pctOwned}%</span></div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pctOwned}%;background:var(--manga-color)"></div></div>
+        </div>` : ''}` : ''}
+    </div>
+  </div>`;
+}
+
+async function quickMangaVol(id, field, delta, event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const m = mediaList.find(x=>x.id===id);
+  if (!m) return;
+  const key = field === 'read' ? 'volsRead' : 'volsOwned';
+  const max  = field === 'read' ? (m.volsES||Infinity) : (m.volsES||Infinity);
+  m[key] = Math.min(max, Math.max(0, (m[key]||0) + delta));
+  if (m.volsES > 0 && m.volsRead >= m.volsES) m.status = 'completed';
+  m.updatedAt = Date.now();
+  saveData(); render();
+  await saveToSupabase(m);
+}
+
+// Override openDetail for manga
+const _origOpenDetail = openDetail;
+function openDetail(id) {
+  const m = mediaList.find(x=>x.id===id);
+  if (!m || m.type !== 'manga') return _origOpenDetail(id);
+  openMangaDetail(m);
+}
+
+function openMangaDetail(m) {
+  const backdrop = document.getElementById('detail-backdrop');
+  backdrop.style.backgroundImage = m.poster ? `url(${m.poster})` : 'none';
+  backdrop.style.filter = m.poster ? 'blur(8px)' : 'none';
+  backdrop.style.opacity = m.poster ? '0.6' : '1';
+
+  document.getElementById('detail-header').innerHTML = `
+    <div class="detail-info">
+      <h2>${m.title}</h2>
+      <div class="meta">${['Manga', m.year, m.genre, m.publisher].filter(Boolean).join(' · ')}</div>
+      <div class="card-tags" style="margin-top:6px">
+        ${statusTag(m.status)}
+        ${contTag(m.continuation)}
+        ${m.rating ? `<span class="tag" style="background:var(--warning-bg);color:var(--warning-text)">★ ${m.rating}</span>` : ''}
+      </div>
+    </div>`;
+
+  const volsES    = m.volsES    || 0;
+  const volsOwned = m.volsOwned || 0;
+  const volsRead  = m.volsRead  || 0;
+  const volsJP    = m.volsJP    || 0;
+  const volsJPRead= m.volsJPRead|| 0;
+
+  document.getElementById('detail-body').innerHTML = `
+    <!-- ES volumes -->
+    <div style="background:var(--surface-3);border-radius:var(--radius);padding:12px;margin-bottom:10px">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">
+        📦 Edición española ${m.publisher?'· '+m.publisher:''}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Publicados en España</div>
+          <div class="ep-control" style="padding:6px 10px">
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsES',-1)">−</button>
+            <span class="ep-count" id="mv-es-${m.id}" style="font-size:18px">${volsES}</span>
+            <span class="ep-total">tomos</span>
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsES',1)">+</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Comprados</div>
+          <div class="ep-control" style="padding:6px 10px">
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsOwned',-1)">−</button>
+            <span class="ep-count" id="mv-owned-${m.id}" style="font-size:18px">${volsOwned}</span>
+            <span class="ep-total">/ ${volsES||'?'}</span>
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsOwned',1)">+</button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Leídos</div>
+        <div class="ep-control" style="padding:6px 10px">
+          <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsRead',-1)">−</button>
+          <span class="ep-count" id="mv-read-${m.id}" style="font-size:18px">${volsRead}</span>
+          <span class="ep-total">/ ${volsES||'?'}</span>
+          <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsRead',1)">+</button>
+        </div>
+        ${volsES > 0 ? `<div class="progress-bar" style="height:4px;margin-top:6px"><div class="progress-fill fill-watching" id="mv-bar-read-${m.id}" style="width:${Math.round(volsRead/volsES*100)}%"></div></div>` : ''}
+      </div>
+    </div>
+
+    <!-- JP volumes -->
+    ${volsJP > 0 || true ? `
+    <div style="background:var(--surface-3);border-radius:var(--radius);padding:12px;margin-bottom:10px">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">🇯🇵 Original japonés</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Tomos JP</div>
+          <div class="ep-control" style="padding:6px 10px">
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsJP',-1)">−</button>
+            <span class="ep-count" id="mv-jp-${m.id}" style="font-size:18px">${volsJP}</span>
+            <span class="ep-total">tomos</span>
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsJP',1)">+</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Leídos (JP)</div>
+          <div class="ep-control" style="padding:6px 10px">
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsJPRead',-1)">−</button>
+            <span class="ep-count" id="mv-jpread-${m.id}" style="font-size:18px">${volsJPRead}</span>
+            <span class="ep-total">/ ${volsJP||'?'}</span>
+            <button class="ep-btn" onclick="changeMangaVol('${m.id}','volsJPRead',1)">+</button>
+          </div>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <div class="detail-actions">
+      <button class="btn" onclick="closeDetail();openModal('${m.id}')"><i class="ti ti-edit"></i> Editar</button>
+      <button class="btn btn-danger" onclick="deleteMedia('${m.id}')"><i class="ti ti-trash"></i> Eliminar</button>
+    </div>`;
+
+  document.getElementById('detail-modal').classList.add('open');
+}
+
+async function changeMangaVol(id, field, delta) {
+  const m = mediaList.find(x=>x.id===id);
+  if (!m) return;
+  const maxMap = { volsRead: m.volsES, volsOwned: m.volsES, volsJPRead: m.volsJP };
+  const max = maxMap[field] || Infinity;
+  m[field] = Math.min(max||Infinity, Math.max(0, (m[field]||0) + delta));
+  if (m.volsES > 0 && m.volsRead >= m.volsES) m.status = 'completed';
+  m.updatedAt = Date.now();
+  saveData(); render();
+  // Update UI live
+  const els = {
+    volsES:     `mv-es-${id}`,    volsOwned: `mv-owned-${id}`,
+    volsRead:   `mv-read-${id}`,  volsJP:    `mv-jp-${id}`,
+    volsJPRead: `mv-jpread-${id}`
+  };
+  const el = document.getElementById(els[field]);
+  if (el) el.textContent = m[field];
+  const bar = document.getElementById(`mv-bar-read-${id}`);
+  if (bar && m.volsES > 0) bar.style.width = Math.round(m.volsRead/m.volsES*100)+'%';
+  await saveToSupabase(m);
+}
+
+// MangaDex search
+async function searchMangaDex() {
+  const query = document.getElementById('tmdb-query').value.trim();
+  if (!query) return;
+  const btn = document.getElementById('tmdb-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Buscando...';
+  document.getElementById('tmdb-results').innerHTML = '';
+  try {
+    const res = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(query)}&limit=12&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica`);
+    const data = await res.json();
+    if (data.data?.length > 0) {
+      document.getElementById('tmdb-results').innerHTML = data.data.map(r => {
+        const title = r.attributes.title.es || r.attributes.title.en || r.attributes.title['ja-ro'] || Object.values(r.attributes.title)[0] || '';
+        const year  = r.attributes.year || '';
+        const cover = r.relationships.find(x=>x.type==='cover_art');
+        const imgUrl = cover ? `https://uploads.mangadex.org/covers/${r.id}/${cover.attributes?.fileName}.256.jpg` : '';
+        const img = imgUrl ? `<img src="${imgUrl}" alt="${title}" loading="lazy">` : `<div class="tmdb-result-no-img">📚</div>`;
+        const volsJP = r.attributes.lastVolume ? parseInt(r.attributes.lastVolume)||0 : 0;
+        const status = r.attributes.status;
+        const d = JSON.stringify({ id:r.id, title, year, poster:imgUrl, volsJP, status }).replace(/"/g,'&quot;');
+        return `<div class="tmdb-result" onclick="selectManga(${d},this)">
+          ${img}
+          <div class="tmdb-result-title">${title} ${year?`(${year})`:''}</div>
+        </div>`;
+      }).join('');
+    } else {
+      document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:8px 0">Sin resultados. Prueba en inglés o japonés.</p>';
+    }
+  } catch(e) {
+    document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--danger);padding:8px 0">Error al conectar con MangaDex.</p>';
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
+}
+
+function selectManga(data, el) {
+  document.querySelectorAll('.tmdb-result').forEach(e=>e.style.borderColor='transparent');
+  el.style.borderColor = 'var(--accent)';
+  document.getElementById('f-title').value  = data.title;
+  document.getElementById('f-year').value   = data.year || '';
+  document.getElementById('f-vols-jp').value = data.volsJP || '';
+  document.getElementById('f-manga-poster').value = data.poster || '';
+  updateMiniPoster('manga', data.poster || '');
+  // Set continuation based on MangaDex status
+  const contMap = { completed:'no', cancelled:'cancelled', hiatus:'paused', ongoing:'unknown' };
+  const cont = contMap[data.status] || 'unknown';
+  document.getElementById('f-continuation').value = cont;
+}

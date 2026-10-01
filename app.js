@@ -590,6 +590,7 @@ async function selectTMDB(data, el) {
 function openDetail(id) {
   const m = mediaList.find(x=>x.id===id);
   if (!m) return;
+  if (m.type === 'manga') { openMangaDetail(m); return; }
   const emoji   = TYPE_EMOJI[m.type];
   const seasons = m.seasons || [];
   const activeSeason = seasons[activeSeasonTab[id] ?? 0];
@@ -1035,6 +1036,7 @@ async function deleteAll() {
 
 // Reescribir renderCard para incluir controles rápidos
 function renderCard(m) {
+  if (m.type === 'manga') return renderMangaCard(m);
   const isAnime  = m.type === 'anime';
   const epSeen   = m.type === 'movie' ? 0 : totalEpSeen(m);
   const epTotal  = m.type === 'movie' ? 0 : totalEpTotal(m);
@@ -2205,12 +2207,7 @@ setTimeout(updateRemindersBadge, 1500);
 // MANGA — card, detail, search
 // ════════════════════════════════════════════════════════════════
 
-// Override renderCard to handle manga
-const _origRenderCard = renderCard;
-function renderCard(m) {
-  if (m.type !== 'manga') return _origRenderCard(m);
-  return renderMangaCard(m);
-}
+
 
 function renderMangaCard(m) {
   const poster = m.poster || '';
@@ -2274,13 +2271,7 @@ async function quickMangaVol(id, field, delta, event) {
   await saveToSupabase(m);
 }
 
-// Override openDetail for manga
-const _origOpenDetail = openDetail;
-function openDetail(id) {
-  const m = mediaList.find(x=>x.id===id);
-  if (!m || m.type !== 'manga') return _origOpenDetail(id);
-  openMangaDetail(m);
-}
+
 
 function openMangaDetail(m) {
   const backdrop = document.getElementById('detail-backdrop');

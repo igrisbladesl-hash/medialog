@@ -2398,30 +2398,59 @@ async function searchMangaDex() {
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Buscando...';
   document.getElementById('tmdb-results').innerHTML = '';
-  try {
-    const res = await fetch(`https://api.mangadex.org/manga?title=${encodeURIComponent(query)}&limit=12&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica`);
-    const data = await res.json();
-    if (data.data?.length > 0) {
-      document.getElementById('tmdb-results').innerHTML = data.data.map(r => {
-        const title = r.attributes.title.es || r.attributes.title.en || r.attributes.title['ja-ro'] || Object.values(r.attributes.title)[0] || '';
-        const year  = r.attributes.year || '';
-        const cover = r.relationships.find(x=>x.type==='cover_art');
-        const imgUrl = cover ? `https://uploads.mangadex.org/covers/${r.id}/${cover.attributes?.fileName}.256.jpg` : '';
-        const img = imgUrl ? `<img src="${imgUrl}" alt="${title}" loading="lazy">` : `<div class="tmdb-result-no-img">📚</div>`;
-        const volsJP = r.attributes.lastVolume ? parseInt(r.attributes.lastVolume)||0 : 0;
-        const status = r.attributes.status;
-        const d = JSON.stringify({ id:r.id, title, year, poster:imgUrl, volsJP, status }).replace(/"/g,'&quot;');
-        return `<div class="tmdb-result" onclick="selectManga(${d},this)">
-          ${img}
-          <div class="tmdb-result-title">${title} ${year?`(${year})`:''}</div>
-        </div>`;
-      }).join('');
-    } else {
-      document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:8px 0">Sin resultados. Prueba en inglés o japonés.</p>';
-    }
-  } catch(e) {
-    document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--danger);padding:8px 0">Error al conectar con MangaDex.</p>';
+
+  // Try direct first, then via CORS proxy
+  const MDEX = `https://api.mangadex.org/manga?title=${encodeURIComponent(query)}&limit=12&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica`;
+  const PROXY = `https://corsproxy.io/?url=${encodeURIComponent(MDEX)}`;
+
+  let data = null;
+  for (const url of [MDEX, PROXY]) {
+    try {
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json.data?.length >= 0) { data = json; break; }
+    } catch(e) { continue; }
   }
+
+  if (!data) {
+    // Fallback: search Open Library for manga (has good CORS)
+    try {
+      const res = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query+' manga')}&limit=8&fields=key,title,author_name,first_publish_year,cover_i`);
+      const olData = await res.json();
+      if (olData.docs?.length > 0) {
+        document.getElementById('tmdb-results').innerHTML =
+          '<p style="font-size:11px;color:var(--text-muted);padding:4px 0 6px">Resultados de Open Library (MangaDex no disponible):</p>' +
+          olData.docs.map(r => {
+            const title = r.title || '';
+            const year = r.first_publish_year || '';
+            const imgUrl = r.cover_i ? `https://covers.openlibrary.org/b/id/${r.cover_i}-M.jpg` : '';
+            const img = imgUrl ? `<img src="${imgUrl}" alt="${title}" loading="lazy">` : `<div class="tmdb-result-no-img">📚</div>`;
+            const d = JSON.stringify({ id: r.key, title, year, poster: imgUrl, volsJP: 0, status: 'unknown' }).replace(/"/g,'&quot;');
+            return `<div class="tmdb-result" onclick="selectManga(${d},this)">${img}<div class="tmdb-result-title">${title} ${year?`(${year})`:''}</div></div>`;
+          }).join('');
+        btn.disabled = false; btn.innerHTML = '<i class="ti ti-search"></i> Buscar'; return;
+      }
+    } catch(e2) {}
+    document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--danger);padding:8px 0">No se pudo conectar. Puedes añadir el póster manualmente con su URL.</p>';
+    btn.disabled = false; btn.innerHTML = '<i class="ti ti-search"></i> Buscar'; return;
+  }
+
+  if (data.data?.length > 0) {
+    document.getElementById('tmdb-results').innerHTML = data.data.map(r => {
+      const title = r.attributes.title.es || r.attributes.title.en || r.attributes.title['ja-ro'] || Object.values(r.attributes.title)[0] || '';
+      const year  = r.attributes.year || '';
+      const cover = r.relationships?.find(x=>x.type==='cover_art');
+      const imgUrl = cover?.attributes?.fileName ? `https://uploads.mangadex.org/covers/${r.id}/${cover.attributes.fileName}.256.jpg` : '';
+      const img = imgUrl ? `<img src="${imgUrl}" alt="${title}" loading="lazy">` : `<div class="tmdb-result-no-img">📚</div>`;
+      const volsJP = r.attributes.lastVolume ? parseInt(r.attributes.lastVolume)||0 : 0;
+      const d = JSON.stringify({ id:r.id, title, year, poster:imgUrl, volsJP, status:r.attributes.status }).replace(/"/g,'&quot;');
+      return `<div class="tmdb-result" onclick="selectManga(${d},this)">${img}<div class="tmdb-result-title">${title} ${year?`(${year})`:''}</div></div>`;
+    }).join('');
+  } else {
+    document.getElementById('tmdb-results').innerHTML = '<p style="font-size:12px;color:var(--text-muted);padding:8px 0">Sin resultados. Prueba en inglés o japonés.</p>';
+  }
+
   btn.disabled = false;
   btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
 }

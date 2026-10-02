@@ -407,9 +407,14 @@ function updateModalFields() {
   const type = document.getElementById('f-type').value;
   const isMovie = type === 'movie';
   const isManga = type === 'manga';
-  document.getElementById('seasons-section').style.display    = (isMovie || isManga) ? 'none' : 'block';
+  document.getElementById('seasons-section').style.display      = (isMovie || isManga) ? 'none' : 'block';
   document.getElementById('movie-poster-section').style.display = isMovie ? 'block' : 'none';
   document.getElementById('manga-section').style.display        = isManga ? 'block' : 'none';
+  // Update search label
+  const searchLabel = document.getElementById('tmdb-search-label');
+  if (searchLabel) searchLabel.textContent = isManga
+    ? 'Buscar en MangaDex (autocompleta póster y tomos JP)'
+    : 'Buscar en TMDB (autocompleta datos, póster y temporadas)';
   const contLabel = document.querySelector('#f-continuation-wrap label');
   if (contLabel) contLabel.textContent = isMovie ? 'Secuela / continuación' : isManga ? 'Continuación del manga' : 'Continuación';
 }
@@ -2399,19 +2404,18 @@ async function searchMangaDex() {
   btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> Buscando...';
   document.getElementById('tmdb-results').innerHTML = '';
 
-  // Try direct first, then via CORS proxy
+  // MangaDex requires CORS proxy from browser
   const MDEX = `https://api.mangadex.org/manga?title=${encodeURIComponent(query)}&limit=12&includes[]=cover_art&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica`;
   const PROXY = `https://corsproxy.io/?url=${encodeURIComponent(MDEX)}`;
 
   let data = null;
-  for (const url of [MDEX, PROXY]) {
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      if (!res.ok) continue;
+  try {
+    const res = await fetch(PROXY, { headers: { 'Accept': 'application/json' } });
+    if (res.ok) {
       const json = await res.json();
-      if (json.data?.length >= 0) { data = json; break; }
-    } catch(e) { continue; }
-  }
+      if (Array.isArray(json.data)) data = json;
+    }
+  } catch(e) { console.warn('MangaDex via proxy failed:', e); }
 
   if (!data) {
     // Fallback: search Open Library for manga (has good CORS)

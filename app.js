@@ -469,17 +469,16 @@ function onStatusChange() {
   const status = document.getElementById('f-status').value;
   const type   = document.getElementById('f-type').value;
   if (status !== 'completed' || type === 'movie' || type === 'manga') return;
-  // Fill all epSeen = epTotal regardless of current value
-  const seasons = document.querySelectorAll('.season-block');
-  seasons.forEach((block, i) => {
-    const totalInput = block.querySelector(`#s${i}-total`);
-    const seenInput  = block.querySelector(`#s${i}-seen`);
-    if (totalInput && seenInput) {
-      const total = parseInt(totalInput.value) || 0;
-      // If total is known, use it; otherwise keep current seen as-is
-      if (total > 0) seenInput.value = total;
-    }
-  });
+  // Fill epSeen = epTotal for every season input present in the form
+  let i = 0;
+  while (true) {
+    const totalInput = document.getElementById(`s${i}-total`);
+    const seenInput  = document.getElementById(`s${i}-seen`);
+    if (!totalInput || !seenInput) break;
+    const total = parseInt(totalInput.value) || 0;
+    if (total > 0) seenInput.value = total;
+    i++;
+  }
 }
 
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }

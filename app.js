@@ -469,15 +469,13 @@ function onStatusChange() {
   const status = document.getElementById('f-status').value;
   const type   = document.getElementById('f-type').value;
   if (status !== 'completed' || type === 'movie' || type === 'manga') return;
-  // Fill epSeen = epTotal for every season input present in the form
-  let i = 0;
-  while (true) {
+  // IDs start at s1 (seasonCount starts at 0, increments before use)
+  for (let i = 1; i <= seasonCount; i++) {
     const totalInput = document.getElementById(`s${i}-total`);
     const seenInput  = document.getElementById(`s${i}-seen`);
-    if (!totalInput || !seenInput) break;
+    if (!totalInput || !seenInput) continue;
     const total = parseInt(totalInput.value) || 0;
     if (total > 0) seenInput.value = total;
-    i++;
   }
 }
 

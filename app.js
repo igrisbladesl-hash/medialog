@@ -469,13 +469,15 @@ function onStatusChange() {
   const status = document.getElementById('f-status').value;
   const type   = document.getElementById('f-type').value;
   if (status !== 'completed' || type === 'movie' || type === 'manga') return;
-  // Fill all epSeen = epTotal visually in the season inputs
+  // Fill all epSeen = epTotal regardless of current value
   const seasons = document.querySelectorAll('.season-block');
   seasons.forEach((block, i) => {
     const totalInput = block.querySelector(`#s${i}-total`);
     const seenInput  = block.querySelector(`#s${i}-seen`);
-    if (totalInput && seenInput && parseInt(totalInput.value) > 0) {
-      seenInput.value = totalInput.value;
+    if (totalInput && seenInput) {
+      const total = parseInt(totalInput.value) || 0;
+      // If total is known, use it; otherwise keep current seen as-is
+      if (total > 0) seenInput.value = total;
     }
   });
 }
@@ -525,7 +527,7 @@ async function saveMedia() {
   if (entry.status === 'completed' && entry.type !== 'movie' && entry.type !== 'manga') {
     entry.seasons = entry.seasons.map(s => ({
       ...s,
-      epSeen: s.epTotal > 0 ? s.epTotal : s.epSeen
+      epSeen: s.epTotal > 0 ? s.epTotal : s.epSeen  // always fill if total known
     }));
     entry.rating = calcRating(entry.type, document.getElementById('f-rating').value, entry.seasons);
   }

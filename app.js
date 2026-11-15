@@ -69,32 +69,54 @@ async function loadFromSupabase() {
     if (!res.ok) throw new Error('fetch failed');
     const rows = await res.json();
 
-    // SUPABASE IS ALWAYS SOURCE OF TRUTH
     // Build map from Supabase
     const remoteMap = {};
     rows.forEach(r => { remoteMap[r.id] = recalcRating({ ...r.data, id: r.id }); });
 
-    // Only add local items that DON'T exist in Supabase (created offline)
+    // Merge: local wins if its updatedAt is newer than Supabase (user made changes offline)
     const local = JSON.parse(localStorage.getItem('medialog_v4') || '[]');
     const toSync = [];
     local.forEach(m => {
       if (!m.id || !m.title || !m.type) return; // skip corrupt
       if (!remoteMap[m.id]) {
-        // New item created offline — add it
+        // New item created offline — upload it
         const entry = recalcRating(m);
         remoteMap[m.id] = entry;
         toSync.push(entry);
-        console.log('Uploading offline item:', m.title);
+        console.log('[merge] Uploading offline item:', m.title);
+      } else {
+        const localTs  = m.updatedAt || m.addedAt || 0;
+        const remoteTs = remoteMap[m.id].updatedAt || remoteMap[m.id].addedAt || 0;
+        if (localTs > remoteTs + 5000) {
+          // Local is meaningfully newer — upload local version
+          const entry = recalcRating(m);
+          remoteMap[m.id] = entry;
+          toSync.push(entry);
+          console.log('[merge] Local newer, uploading:', m.title, '(local:', localTs, '> remote:', remoteTs, ')');
+        }
+        // Otherwise remote wins (default)
       }
-      // If it exists in Supabase, Supabase wins — no comparison
     });
 
-    // Final list = everything from Supabase + any offline additions
+    // Also retry any pending saves that failed before
+    const pending = JSON.parse(localStorage.getItem('ml_pending_saves') || '[]');
+    if (pending.length > 0) {
+      console.log('[merge] Retrying', pending.length, 'pending saves...');
+      pending.forEach(m => {
+        if (!m.id || !m.title || !m.type) return;
+        const remoteTs = remoteMap[m.id]?.updatedAt || 0;
+        const localTs  = m.updatedAt || 0;
+        if (localTs > remoteTs) { remoteMap[m.id] = recalcRating(m); toSync.push(m); }
+      });
+      localStorage.removeItem('ml_pending_saves');
+    }
+
+    // Final list = merged result
     mediaList = Object.values(remoteMap);
     mediaList.sort((a,b) => (b.addedAt||b.updatedAt||0) - (a.addedAt||a.updatedAt||0));
     localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
 
-    // Upload offline-created items
+    // Upload items that are newer locally
     for (const entry of toSync) await saveToSupabase(entry);
 
     _supabaseLoaded = true;
@@ -114,22 +136,36 @@ async function saveToSupabase(entry) {
   // Validate before saving — never save corrupt entries
   if (!entry || !entry.id || !entry.title || !entry.type) {
     console.warn('Skipping corrupt entry', entry);
-    return;
+    return false;
   }
-  console.log('[Supabase] Saving:', entry.title, '| continuation:', entry.continuation, '| seasons:', entry.seasons?.length);
+  console.log('[Supabase] Saving:', entry.title, '| updatedAt:', entry.updatedAt);
   setSyncStatus('syncing');
-  try {
-    const res = await fetch(DB, {
-      method: 'POST',
-      headers: { ...HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: entry.id, data: entry, updated_at: new Date().toISOString() })
-    });
-    if (!res.ok) throw new Error('save failed');
-    setSyncStatus('ok');
-  } catch(e) {
-    console.warn('Supabase save failed', e);
-    setSyncStatus('error');
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(DB, {
+        method: 'POST',
+        headers: { ...HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ id: entry.id, data: entry, updated_at: new Date().toISOString() })
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(()=>'');
+        throw new Error(`HTTP ${res.status}: ${txt}`);
+      }
+      setSyncStatus('ok');
+      return true;
+    } catch(e) {
+      console.warn(`[Supabase] Save attempt ${attempt}/3 failed:`, e.message);
+      if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
   }
+  console.error('[Supabase] All save attempts failed for:', entry.title);
+  setSyncStatus('error');
+  // Persist pending save to localStorage so it retries on next load
+  const pending = JSON.parse(localStorage.getItem('ml_pending_saves') || '[]');
+  const idx = pending.findIndex(p => p.id === entry.id);
+  if (idx >= 0) pending[idx] = entry; else pending.push(entry);
+  localStorage.setItem('ml_pending_saves', JSON.stringify(pending));
+  return false;
 }
 
 async function deleteFromSupabase(id) {
@@ -153,7 +189,17 @@ function setSyncStatus(status) {
 }
 
 function saveData() {
+  if (!_supabaseLoaded) return; // don't overwrite valid Supabase data before load
   localStorage.setItem('medialog_v4', JSON.stringify(mediaList));
+}
+
+function saveEntry(entry) {
+  // Single entry save: stamp updatedAt, update mediaList, persist locally + remotely
+  entry.updatedAt = Date.now();
+  const idx = mediaList.findIndex(m => m.id === entry.id);
+  if (idx >= 0) mediaList[idx] = entry; else mediaList.push(entry);
+  saveData();
+  saveToSupabase(entry);
 }
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }

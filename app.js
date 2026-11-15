@@ -465,6 +465,21 @@ function updateModalFields() {
   if (contLabel) contLabel.textContent = isMovie ? 'Secuela / continuación' : isManga ? 'Continuación del manga' : 'Continuación';
 }
 
+function onStatusChange() {
+  const status = document.getElementById('f-status').value;
+  const type   = document.getElementById('f-type').value;
+  if (status !== 'completed' || type === 'movie' || type === 'manga') return;
+  // Fill all epSeen = epTotal visually in the season inputs
+  const seasons = document.querySelectorAll('.season-block');
+  seasons.forEach((block, i) => {
+    const totalInput = block.querySelector(`#s${i}-total`);
+    const seenInput  = block.querySelector(`#s${i}-seen`);
+    if (totalInput && seenInput && parseInt(totalInput.value) > 0) {
+      seenInput.value = totalInput.value;
+    }
+  });
+}
+
 function closeModal()    { document.getElementById('add-modal').classList.remove('open'); }
 function closeModalBg(e) { if (e.target.id==='add-modal') closeModal(); }
 
@@ -506,6 +521,15 @@ async function saveMedia() {
     updatedAt:    Date.now(),
     addedAt:      editingId ? (mediaList.find(x=>x.id===editingId)?.addedAt || Date.now()) : Date.now(),
   };
+  // Auto-fill episodes when marking as completed
+  if (entry.status === 'completed' && entry.type !== 'movie' && entry.type !== 'manga') {
+    entry.seasons = entry.seasons.map(s => ({
+      ...s,
+      epSeen: s.epTotal > 0 ? s.epTotal : s.epSeen
+    }));
+    entry.rating = calcRating(entry.type, document.getElementById('f-rating').value, entry.seasons);
+  }
+
   if (editingId) {
     const idx = mediaList.findIndex(x=>x.id===editingId);
     if (idx>=0) mediaList[idx]=entry; else mediaList.unshift(entry);

@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0f1115">
+<title>MediaLog</title>
+<style>
+:root{
+  --bg:#0f1115;--bg2:#161a21;--bg3:#1d222b;--line:#2a303b;--tx:#e8eaee;--tx2:#9aa3b2;--tx3:#6b7482;
+  --ac:#6ea8fe;--ac2:#3d6fc4;--ok:#3ecf8e;--warn:#f5b84b;--err:#f0616d;--manga:#ff9640;--r:10px;
+}
+*{box-sizing:border-box;margin:0}
+html{color-scheme:dark}
+body{background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:var(--bg3);border:1px solid var(--line);border-radius:8px;padding:7px 12px}
+button:hover{border-color:var(--tx3)}
+button.pri{background:var(--ac2);border-color:var(--ac2);color:#fff}
+button.pri:hover{background:var(--ac)}
+button.dng{color:var(--err)}
+button.ghost{background:transparent}
+input,select,textarea{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+label{display:block;font-size:12px;color:var(--tx2);margin-bottom:3px}
+header{position:sticky;top:0;z-index:20;background:rgba(15,17,21,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{max-width:1280px;margin:auto;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.logo{font-weight:700;font-size:18px;letter-spacing:.3px}
+.logo span{color:var(--ac)}
+.sp{flex:1}
+#sync{font-size:12px;color:var(--tx2);padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--bg2);cursor:pointer}
+#sync.ok{color:var(--ok)}#sync.bad{color:var(--warn)}#sync.err{color:var(--err)}
+nav{max-width:1280px;margin:auto;padding:0 16px;display:flex;gap:2px;overflow-x:auto}
+nav button{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;padding:9px 14px;color:var(--tx2);white-space:nowrap}
+nav button.on{color:var(--tx);border-bottom-color:var(--ac)}
+nav .cnt{background:var(--err);color:#fff;border-radius:99px;font-size:11px;padding:0 6px;margin-left:4px}
+main{max-width:1280px;margin:auto;padding:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.chip{border-radius:99px;padding:4px 12px;font-size:13px;color:var(--tx2);background:var(--bg2)}
+.chip.on{background:var(--ac2);border-color:var(--ac2);color:#fff}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.tabs button .n{opacity:.6;margin-left:4px;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:12px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;flex-direction:column;transition:transform .12s,border-color .12s}
+.card:hover{transform:translateY(-2px);border-color:var(--tx3)}
+.card.manga{border-color:#5a3a1c;background:#1d1812}
+.card.manga:hover{border-color:var(--manga)}
+.poster{position:relative;aspect-ratio:2/3;background:var(--bg3)}
+.poster img{position:relative;z-index:1;width:100%;height:100%;object-fit:cover;display:block}
+.noimg{position:absolute;inset:0;display:grid;place-items:center;font-size:28px;color:var(--tx3);font-weight:700}
+.st,.rt,.badge,.plus{z-index:2}
+.st{position:absolute;left:6px;top:6px;font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(0,0,0,.72);color:var(--tx)}
+.st-watching{color:var(--ac)}.st-completed{color:var(--ok)}.st-pending{color:var(--tx2)}.st-paused{color:var(--warn)}.st-dropped{color:var(--err)}
+.badge{position:absolute;left:6px;bottom:6px;font-size:10px;padding:2px 7px;border-radius:99px;background:#7a3fd1;color:#fff}
+.rt{position:absolute;right:6px;top:6px;font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(0,0,0,.72);color:var(--warn)}
+.plus{position:absolute;right:6px;bottom:6px;width:30px;height:30px;padding:0;border-radius:50%;background:var(--ac2);border-color:var(--ac2);color:#fff;font-weight:700}
+.meta{padding:8px 10px 10px}
+.meta h3{font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:34px}
+.meta p{font-size:12px;color:var(--tx2);margin:3px 0 6px}
+.pb{height:5px;background:var(--bg3);border-radius:9px;overflow:hidden;margin-top:4px}
+.pb i{display:block;height:100%;background:var(--ac)}
+.manga .pb i{background:var(--manga)}
+.pb.b2 i{background:var(--ok)}
+.plabel{font-size:11px;color:var(--tx2)}
+.empty{text-align:center;color:var(--tx2);padding:60px 10px}
+.empty h2{color:var(--tx);margin-bottom:8px}
+.panel{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.item{display:flex;gap:12px;align-items:center;background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px}
+.item img,.item .th{width:38px;height:56px;object-fit:cover;border-radius:5px;background:var(--bg3);flex:none}
+.item .t{flex:1;min-width:0}
+.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .t small{color:var(--tx2)}
+.item select{width:auto}
+.sugg{color:var(--warn);font-size:12px;margin-top:2px}
+.day{margin-top:16px}
+.day h3{font-size:13px;color:var(--tx2);font-weight:600;margin-bottom:6px;display:flex;gap:8px;align-items:center}
+.hoy{background:var(--ok);color:#04230f;font-size:11px;font-weight:700;padding:1px 8px;border-radius:99px}
+.due{border-color:var(--err)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.kpi b{display:block;font-size:24px}
+.kpi span{color:var(--tx2);font-size:12px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:12px}
+.hb{display:grid;grid-template-columns:130px 1fr 40px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.hb .pb{height:9px;margin:0}
+.hb em{font-style:normal;color:var(--tx2);text-align:right}
+dialog{background:var(--bg2);color:var(--tx);border:1px solid var(--line);border-radius:14px;padding:0;width:min(720px,96vw);max-height:92vh}
+dialog::backdrop{background:rgba(0,0,0,.65)}
+.dh{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg2);z-index:2}
+.dh h2{font-size:16px}
+.db{padding:16px 18px;display:flex;flex-direction:column;gap:12px;overflow:auto;max-height:calc(92vh - 130px)}
+.df{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line);justify-content:flex-end;position:sticky;bottom:0;background:var(--bg2)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:560px){.g2,.g3{grid-template-columns:1fr 1fr}.hb{grid-template-columns:90px 1fr 34px}}
+.srow{display:grid;grid-template-columns:72px 56px 14px 56px 74px 1fr auto auto;gap:6px;align-items:center}
+.srow input{padding:5px 7px}
+.srow .slash{text-align:center;color:var(--tx3)}
+@media(max-width:560px){.srow{grid-template-columns:72px 1fr 12px 1fr auto auto;}.srow .sr,.srow .sn{grid-column:2/6}}
+.res{display:flex;gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:var(--bg3)}
+.res:hover{border-color:var(--ac)}
+.res img,.res .th{width:40px;height:60px;object-fit:cover;border-radius:5px;flex:none;background:var(--bg)}
+.res small{color:var(--tx2)}
+.hide{display:none!important}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;overflow:auto;white-space:pre-wrap}
+.note{font-size:12px;color:var(--tx2)}
+#toasts{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:8px;z-index:100;max-width:min(380px,92vw)}
+.toast{background:var(--bg3);border:1px solid var(--line);border-left:3px solid var(--ac);border-radius:8px;padding:9px 12px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.toast.err{border-left-color:var(--err)}.toast.ok{border-left-color:var(--ok)}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="logo">Media<span>Log</span></div>
+    <div class="sp"></div>
+    <span id="sync" data-act="settings" title="Estado de sincronización">…</span>
+    <button class="pri" data-act="add">+ Añadir</button>
+    <button data-act="settings" title="Ajustes">⚙</button>
+  </div>
+  <nav id="nav"></nav>
+</header>
+<main id="app"></main>
+<dialog id="dlg"></dialog>
+<div id="toasts"></div>
+<input type="file" id="fileIn" accept=".json,application/json" class="hide">
+
+<script>
+'use strict';
+/* ============ CONFIG POR DEFECTO (opcional) ============
+   Puedes rellenar esto una vez antes de subir a GitHub para no tener que
+   configurar cada navegador. La clave "anon" de Supabase y la de TMDB
+   quedan visibles en una web pública: es lo normal, pero protege tu tabla
+   con RLS (ver Ajustes). */
+const DEFAULTS={supaUrl:'',supaKey:'',table:'medialog',tmdb:''};
+
+/* ============ utilidades ============ */
+const LS={items:'medialog.v2.items',set:'medialog.v2.settings',pend:'medialog.v2.pending',cal:'medialog.v2.cal',ui:'medialog.v2.ui'};
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const jget=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}};
+const jset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){toast('No se pudo guardar en el navegador (¿almacenamiento lleno?)','err');return false}};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n};
+const fmtN=n=>Number.isInteger(n)?String(n):n.toFixed(1);
+const pad=n=>String(n).padStart(2,'0');
+const isoDay=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fmtDate=ts=>{const d=new Date(ts);return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${String(d.getFullYear()).slice(2)}`};
+const addMonths=(ts,m)=>{const d=new Date(ts);d.setMonth(d.getMonth()+m);return d.getTime()};
+const debounce=(f,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>f(...a),ms)}};
+async function pool(arr,n,fn){let i=0;await Promise.all(Array.from({length:Math.min(n,arr.length)},async()=>{while(i<arr.length){const x=arr[i++];try{await fn(x)}catch(e){console.warn(e)}}}))}
+function toast(msg,kind=''){const d=document.createElement('div');d.className='toast '+kind;d.textContent=msg;$('#toasts').append(d);setTimeout(()=>d.remove(),kind==='err'?6500:3500)}
+
+/* ============ constantes ============ */
+const TYPES={series:'Series',movie:'Películas',anime:'Anime',manga:'Manga'};
+const STATUS={watching:'Viendo',completed:'Completada',pending:'Pendiente',paused:'En pausa',dropped:'Abandonada'};
+const CONT={unknown:['❓','Sin noticias'],rumor:['👂','Rumor'],no:['⏸','Sin continuación'],cancelled:['❌','Cancelada'],confirmed:['✅','Confirmada'],airing:['📺','En emisión']};
+const GENRE_ES={'Animation':'Animación','Action & Adventure':'Acción y aventura','Comedy':'Comedia','Sci-Fi & Fantasy':'Ciencia ficción y fantasía','War & Politics':'Bélica y política','Action':'Acción','Adventure':'Aventura','Fantasy':'Fantasía','Mystery':'Misterio','Horror':'Terror','Crime':'Crimen','Science Fiction':'Ciencia ficción','Thriller':'Suspense'};
+const MIN_PER_EP={anime:24,series:45};
+const MIN_MOVIE=105;
+const statusLabel=it=>it.type==='manga'&&it.status==='watching'?'Leyendo':(STATUS[it.status]||it.status);
+const TV=it=>it.type==='anime'||it.type==='series';
+
+/* ============ estado ============ */
+const S={
+  items:[],
+  set:{...DEFAULTS,...jget(LS.set,{})},
+  pend:new Set(jget(LS.pend,[])),
+  ui:{view:'library',type:'all',status:'all',sort:'recent',q:'',cq:'',cf:'all',...jget(LS.ui,{})},
+  sync:{state:'idle',at:0,msg:''},
+  sugg:{},calCache:null
+};
+const live=()=>S.items.filter(i=>!i.deleted);
+const byId=id=>S.items.find(i=>i.id===id);
+
+/* ============ normalización / migración ============ */
+const S2MAP={leaked:'rumor',unknown:'unknown',no:'no',confirmed:'confirmed',airing:'airing',cancelled:'cancelled',rumor:'rumor'};
+function normItem(r){
+  if(r.deleted)return {id:r.id,deleted:true,type:r.type,title:r.title,updatedAt:r.updatedAt||Date.now()};
+  const it={...r};
+  it.id=it.id||uid();
+  if(!TYPES[it.type])it.type=it.tmdbType==='movie'?'movie':'series';
+  it.title=it.title||'(sin título)';
+  it.year=it.year?String(it.year):'';
+  it.genre=it.genre||'';
+  it.poster=it.poster||'';
+  it.tmdbId=it.tmdbId?String(it.tmdbId):'';
+  if(!STATUS[it.status])it.status='pending';
+  it.updatedAt=it.updatedAt||it.addedAt||Date.now();
+  it.addedAt=it.addedAt||it.updatedAt;
+  if(!Array.isArray(it.seasons)){
+    it.seasons=[];
+    if(TV(it)&&(it.epTotal||it.epSeen)){ /* formato antiguo (1 temporada plana) */
+      const n=parseInt(it.season)||1;
+      it.seasons=[{note:'',airDay:'',epSeen:+it.epSeen||0,number:n,poster:it.poster||'',rating:it.rating===''||it.rating==null?'':String(it.rating),epTotal:+it.epTotal||0,tmdbSeason:n}];
+    }
+    if(!it.continuation&&it.s2)it.continuation=S2MAP[it.s2]||'unknown';
+    if(TV(it)&&!it.tmdbType)it.tmdbType='tv';
+    ['s2','epSeen','epTotal','season','seasonsTotal'].forEach(k=>delete it[k]);
+  }
+  it.seasons=it.seasons.map((s,i)=>({note:'',airDay:'',epSeen:0,epTotal:0,rating:'',poster:'',number:i+1,tmdbSeason:s.number||i+1,...s}));
+  if(!CONT[it.continuation])it.continuation='unknown';
+  it.isAnimeMovie=!!it.isAnimeMovie;
+  if(it.type==='manga'){['volsES','volsJP','volsRead','volsOwned','volsJPRead'].forEach(k=>it[k]=+it[k]||0);it.publisher=it.publisher||''}
+  return it;
+}
+/* quita duplicados (mismo tipo + tmdbId): gana el más reciente */
+function dedupe(){
+  const g=new Map();
+  live().forEach(i=>{if(!i.tmdbId)return;const k=i.type+':'+i.tmdbId;(g.get(k)||g.set(k,[]).get(k)).push(i)});
+  let n=0;
+  g.forEach(a=>{if(a.length<2)return;
+    a.sort((x,y)=>(y.seasons.length>0)-(x.seasons.length>0)||y.updatedAt-x.updatedAt);
+    a.slice(1).forEach(l=>{const t={id:l.id,deleted:true,type:l.type,title:l.title,updatedAt:Date.now()};S.items[S.items.indexOf(l)]=t;S.pend.add(l.id);n++});
+  });
+  return n;
+}
+/* nota global = media de notas por temporada */
+function recalcRating(it){
+  const rs=(it.seasons||[]).map(s=>num(s.rating)).filter(n=>n!=null);
+  if(rs.length)it.rating=Math.round(rs.reduce((a,b)=>a+b,0)/rs.length*10)/10;
+}
+const posterOf=it=>it.poster||(it.seasons.find(s=>s.poster)||{}).poster||'';
+const ratingOf=it=>num(it.rating);
+const epTotals=it=>it.seasons.reduce((a,s)=>({seen:a.seen+(+s.epSeen||0),total:a.total+(+s.epTotal||0)}),{seen:0,total:0});
+const curSeason=it=>it.seasons.find(s=>(+s.epTotal||0)>(+s.epSeen||0))||it.seasons[it.seasons.length-1];
+
+/* ============ persistencia ============ */
+const persist=()=>{jset(LS.items,S.items);jset(LS.pend,[...S.pend])};
+function commit(it,{silent}={}){
+  it.updatedAt=Date.now();
+  const i=S.items.findIndex(x=>x.id===it.id);
+  if(i>=0)S.items[i]=it;else S.items.unshift(it);
+  S.pend.add(it.id);persist();
+  if(!silent)render();
+  scheduleSync(1200);
+}
+function remove(id){
+  const o=byId(id);if(!o)return;
+  S.items[S.items.indexOf(o)]={id,deleted:true,type:o.type,title:o.title,updatedAt:Date.now()};
+  S.pend.add(id);persist();render();scheduleSync(1200);
+}
+
+/* ============ Supabase (REST directo, sin SDK) ============ */
+const sb={
+  ok:()=>!!(S.set.supaUrl&&S.set.supaKey),
+  base:()=>S.set.supaUrl.replace(/\/+$/,'')+'/rest/v1/'+encodeURIComponent(S.set.table||'medialog'),
+  h:x=>({apikey:S.set.supaKey,Authorization:'Bearer '+S.set.supaKey,'Content-Type':'application/json',...x}),
+  async err(r){let t='';try{t=(await r.json()).message||''}catch{}return new Error(`Supabase ${r.status}${t?': '+t:''}`)},
+  async pull(){
+    let out=[],from=0;const step=1000;
+    for(;;){
+      const r=await fetch(this.base()+'?select=id,data,updated_at&order=id',{headers:this.h({Range:`${from}-${from+step-1}`,'Range-Unit':'items'})});
+      if(!r.ok)throw await this.err(r);
+      const a=await r.json();out=out.concat(a);if(a.length<step)break;from+=step;
+    }
+    return out;
+  },
+  async push(rows){
+    for(let i=0;i<rows.length;i+=200){
+      const r=await fetch(this.base()+'?on_conflict=id',{method:'POST',headers:this.h({Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows.slice(i,i+200))});
+      if(!r.ok)throw await this.err(r);
+    }
+  }
+};
+let syncing=false,syncTimer=null,retry=0;
+function setSync(state,msg=''){S.sync={state,at:state==='ok'?Date.now():S.sync.at,msg};drawSync()}
+function drawSync(){
+  const el=$('#sync');if(!el)return;
+  const p=S.pend.size;let t,c='';
+  if(!sb.ok()){t='☁ Sin configurar';c='bad'}
+  else if(S.sync.state==='busy'){t='⟳ Sincronizando…'}
+  else if(S.sync.state==='err'){t=`⚠ Error${p?` · ${p} pend.`:''}`;c='err';el.title=S.sync.msg}
+  else if(!navigator.onLine){t=`⛔ Sin conexión${p?` · ${p} pend.`:''}`;c='bad'}
+  else{t=`✓ Sincronizado${p?` · ${p} pend.`:''}`;c=p?'bad':'ok'}
+  el.textContent=t;el.className=c;if(S.sync.state!=='err')el.title='Estado de sincronización';
+}
+function scheduleSync(ms){if(!sb.ok())return;clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,ms)}
+async function syncNow(){
+  if(!sb.ok()||syncing){drawSync();return}
+  if(!navigator.onLine){drawSync();return}
+  syncing=true;setSync('busy');
+  try{
+    const rows=await sb.pull();
+    const rem=new Map(rows.map(r=>[r.id,r]));
+    const loc=new Map(S.items.map(i=>[i.id,i]));
+    let changed=false;
+    rem.forEach((r,id)=>{
+      const l=loc.get(id),ru=+r.updated_at||+(r.data&&r.data.updatedAt)||0;
+      if(!l||ru>l.updatedAt){
+        const n=normItem({...r.data,id,updatedAt:ru});
+        if(l)S.items[S.items.indexOf(l)]=n;else S.items.push(n);
+        S.pend.delete(id);changed=true;
+      }else if(l.updatedAt>ru)S.pend.add(id);
+    });
+    S.items.forEach(l=>{if(!rem.has(l.id))S.pend.add(l.id)});
+    const ids=[...S.pend],toPush=ids.map(id=>byId(id)).filter(Boolean).map(i=>({id:i.id,data:i,updated_at:i.updatedAt}));
+    if(toPush.length)await sb.push(toPush);
+    S.pend.clear();persist();retry=0;setSync('ok');
+    if(changed||toPush.length)render();
+  }catch(e){
+    console.warn(e);setSync('err',e.message||String(e));
+    retry++;scheduleSync(Math.min(5000*Math.pow(2,retry-1),300000));
+  }finally{syncing=false;drawSync()}
+}
+
+/* ============ TMDB ============ */
+const IMG='https://image.tmdb.org/t/p/w342';
+async function tmdb(path,params={}){
+  const k=(S.set.tmdb||'').trim();
+  if(!k)throw new Error('Falta la clave de TMDB (⚙ Ajustes)');
+  const u=new URL('https://api.themoviedb.org/3'+path);
+  u.searchParams.set('language','es-ES');
+  for(const[a,b]of Object.entries(params))u.searchParams.set(a,b);
+  const h={};
+  if(k.length>40)h.Authorization='Bearer '+k;else u.searchParams.set('api_key',k);
+  const r=await fetch(u,{headers:h});
+  if(!r.ok)throw new Error('TMDB '+r.status+(r.status===401?' (clave no válida)':''));
+  return r.json();
+}
+function seasonsFromTmdb(d){
+  return (d.seasons||[]).filter(s=>s.season_number>0).map(s=>({note:'',airDay:'',epSeen:0,number:s.season_number,poster:s.poster_path?IMG+s.poster_path:'',rating:'',epTotal:s.episode_count||0,tmdbSeason:s.season_number}));
+}
+/* Sugerencia de continuación: NUNCA se aplica sola */
+function suggestFromTmdb(d,it){
+  let cont,why;
+  if(d.next_episode_to_air){cont='airing';why='tiene próximo episodio'}
+  else if(d.status==='Canceled'){cont='cancelled';why='TMDB: cancelada'}
+  else if(d.status==='Ended'){cont='no';why='TMDB: finalizada'}
+  else if(d.status==='Returning Series'||d.status==='In Production'){cont='confirmed';why='TMDB: serie renovada'}
+  else if(d.status==='Planned'){cont='rumor';why='TMDB: planificada'}
+  const newSeasons=Math.max(0,(d.seasons||[]).filter(s=>s.season_number>0).length-it.seasons.length);
+  return {cont:cont&&cont!==it.continuation?cont:null,why,newSeasons};
+}
+async function buildFromTmdb(kind,id,asType,status){
+  if(kind==='movie'){
+    const d=await tmdb('/movie/'+id);
+    const genres=(d.genres||[]).map(g=>g.name);
+    return normItem({id:uid(),type:'movie',year:(d.release_date||'').slice(0,4),genre:genres.join(', '),title:d.title,poster:d.poster_path?IMG+d.poster_path:'',rating:'',status,tmdbId:String(id),seasons:[],tmdbType:'movie',continuation:'unknown',isAnimeMovie:asType==='anime'||(genres.includes('Animación')&&d.original_language==='ja'),addedAt:Date.now(),updatedAt:Date.now()});
+  }
+  const d=await tmdb('/tv/'+id);
+  const it=normItem({id:uid(),type:asType==='series'?'series':'anime',year:(d.first_air_date||'').slice(0,4),genre:(d.genres||[]).map(g=>g.name).join(', '),title:d.name,poster:'',rating:'',status,tmdbId:String(id),seasons:seasonsFromTmdb(d),tmdbType:'tv',continuation:'unknown',addedAt:Date.now(),updatedAt:Date.now()});
+  S.sugg[it.id]=suggestFromTmdb(d,it);
+  return it;
+}
+/* actualiza totales/pósters y añade temporadas nuevas SIN tocar episodios vistos ni notas */
+async function refreshSeasons(it){
+  const d=await tmdb('/tv/'+it.tmdbId);
+  const fresh=seasonsFromTmdb(d);let ch=0;
+  fresh.forEach(f=>{
+    const s=it.seasons.find(x=>(x.tmdbSeason||x.number)===f.tmdbSeason);
+    if(s){if(f.epTotal&&f.epTotal!==s.epTotal){s.epTotal=f.epTotal;ch++}if(!s.poster&&f.poster){s.poster=f.poster;ch++}}
+    else{it.seasons.push(f);ch++}
+  });
+  it.seasons.sort((a,b)=>a.number-b.number);
+  return {ch,sug:suggestFromTmdb(d,it),d};
+}
+
+/* ============ MangaDex (con proxy CORS) + Open Library ============ */
+const PROXIES=[u=>u,u=>'https://corsproxy.io/?url='+encodeURIComponent(u),u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u)];
+async function fetchJsonProxy(url){
+  let last;
+  for(const p of PROXIES){
+    try{const r=await fetch(p(url),{signal:AbortSignal.timeout(9000)});if(r.ok)return await r.json();last=new Error('HTTP '+r.status)}catch(e){last=e}
+  }
+  throw last;
+}
+async function searchManga(q){
+  try{
+    const u='https://api.mangadex.org/manga?limit=12&includes[]=cover_art&order[relevance]=desc&title='+encodeURIComponent(q);
+    const j=await fetchJsonProxy(u);
+    return j.data.map(m=>{
+      const a=m.attributes,cover=(m.relationships||[]).find(r=>r.type==='cover_art');
+      const title=a.title.en||a.title['ja-ro']||Object.values(a.title)[0]||'?';
+      return {src:'mangadex',key:m.id,title,year:a.year?String(a.year):'',poster:cover&&cover.attributes?`https://uploads.mangadex.org/covers/${m.id}/${cover.attributes.fileName}.256.jpg`:'',genre:(a.tags||[]).filter(t=>t.attributes.group==='genre').map(t=>t.attributes.name.en).join(', '),volsJP:parseInt(a.lastVolume)||0};
+    });
+  }catch(e){console.warn('MangaDex falló, uso Open Library',e)}
+  const j=await (await fetch('https://openlibrary.org/search.json?limit=12&q='+encodeURIComponent(q))).json();
+  return (j.docs||[]).map(d=>({src:'openlibrary',key:d.key,title:d.title,year:d.first_publish_year?String(d.first_publish_year):'',poster:d.cover_i?`https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg`:'',genre:(d.subject||[]).slice(0,3).join(', '),volsJP:0}));
+}
+
+/* ============ vistas ============ */
+const views={library,continuations,calendar,reminders,stats};
+const NAV=[['library','Biblioteca'],['continuations','Continuaciones'],['calendar','📅 Calendario'],['reminders','🔔 Recordatorios'],['stats','📊 Estadísticas']];
+const dueList=()=>live().filter(i=>i.reminder&&i.reminder.nextDue&&i.reminder.nextDue<=Date.now());
+function render(){
+  const d=dueList().length;
+  $('#nav').innerHTML=NAV.map(([k,l])=>`<button class="${S.ui.view===k?'on':''}" data-act="nav" data-v="${k}">${l}${k==='reminders'&&d?`<span class="cnt">${d}</span>`:''}</button>`).join('');
+  (views[S.ui.view]||library)();drawSync();
+}
+const saveUi=()=>jset(LS.ui,S.ui);
+
+/* ---- Biblioteca ---- */
+function filtered(){
+  const q=S.ui.q.trim().toLowerCase();
+  let a=live().filter(i=>(S.ui.type==='all'||i.type===S.ui.type)&&(S.ui.status==='all'||i.status===S.ui.status)&&(!q||i.title.toLowerCase().includes(q)));
+  const s=S.ui.sort;
+  if(s==='az')a.sort((x,y)=>x.title.localeCompare(y.title,'es'));
+  else if(s==='rating')a.sort((x,y)=>(ratingOf(y)??-1)-(ratingOf(x)??-1));
+  else if(s==='year')a.sort((x,y)=>(+y.year||0)-(+x.year||0));
+  else a.sort((x,y)=>(y.addedAt||y.updatedAt)-(x.addedAt||x.updatedAt));
+  return a;
+}
+function library(){
+  const all=live(),cnt=t=>t==='all'?all.length:all.filter(i=>i.type===t).length;
+  $('#app').innerHTML=`
+  <div class="tabs">${['all','series','movie','anime','manga'].map(t=>`<button class="${S.ui.type===t?'on':''}" data-act="type" data-v="${t}">${t==='all'?'Todo':TYPES[t]}<span class="n">${cnt(t)}</span></button>`).join('')}</div>
+  <div class="chips">${['all',...Object.keys(STATUS)].map(s=>`<button class="chip ${S.ui.status===s?'on':''}" data-act="status" data-v="${s}">${s==='all'?'Todos':STATUS[s]}</button>`).join('')}</div>
+  <div class="row"><input id="q" type="search" placeholder="Buscar en tu biblioteca…" value="${esc(S.ui.q)}" style="flex:1;min-width:180px">
+  <select id="sort" style="width:auto"><option value="recent">Recientes</option><option value="az">A-Z</option><option value="rating">Puntuación</option><option value="year">Año</option></select></div>
+  <div id="list"></div>`;
+  $('#sort').value=S.ui.sort;
+  $('#q').oninput=debounce(e=>{S.ui.q=e.target.value;saveUi();drawGrid()},120);
+  $('#sort').onchange=e=>{S.ui.sort=e.target.value;saveUi();drawGrid()};
+  drawGrid();
+}
+function drawGrid(){
+  const a=filtered(),el=$('#list');if(!el)return;
+  if(!live().length){el.innerHTML=`<div class="empty"><h2>Tu biblioteca está vacía</h2><p>Importa tu archivo de exportación o configura Supabase en ⚙ Ajustes, o añade tu primera obra.</p><p style="margin-top:14px"><button class="pri" data-act="import">Importar JSON</button> <button data-act="add">+ Añadir</button></p></div>`;return}
+  if(!a.length){el.innerHTML='<div class="empty">Nada coincide con los filtros.</div>';return}
+  el.innerHTML=`<div class="grid">${a.map(card).join('')}</div>`;
+}
+function card(it){
+  const p=posterOf(it),r=ratingOf(it),c=CONT[it.continuation]||CONT.unknown;
+  let prog='',plus='';
+  if(it.type==='manga'){
+    const o=it.volsOwned,es=it.volsES,rd=it.volsRead;
+    prog=`<div class="plabel">ES ${o}/${es||'?'} comprados</div><div class="pb"><i style="width:${es?Math.min(100,o/es*100):0}%"></i></div>
+          <div class="plabel" style="margin-top:4px">Leídos ${rd}/${o}${it.volsJP?` · JP ${it.volsJPRead}/${it.volsJP}`:''}</div><div class="pb b2"><i style="width:${o?Math.min(100,rd/o*100):0}%"></i></div>`;
+  }else if(TV(it)&&it.seasons.length){
+    const t=epTotals(it),cs=curSeason(it);
+    prog=`<div class="plabel">T${cs.number} · ${t.seen}/${t.total||'?'} ep</div><div class="pb"><i style="width:${t.total?Math.min(100,t.seen/t.total*100):0}%"></i></div>`;
+    if(it.status==='watching')plus=`<button class="plus" data-act="plus" data-id="${esc(it.id)}" title="+1 episodio">+1</button>`;
+  }
+  return `<article class="card ${it.type==='manga'?'manga':''}" data-act="edit" data-id="${esc(it.id)}">
+    <div class="poster">${p?`<img loading="lazy" src="${esc(p)}" alt="" onerror="this.remove()">`:''}<span class="noimg">${esc(it.title.slice(0,2).toUpperCase())}</span>
+      <span class="st st-${it.status}">${statusLabel(it)}</span>${r!=null?`<span class="rt">★ ${fmtN(r)}</span>`:''}${it.isAnimeMovie?'<span class="badge">Película anime</span>':''}${plus}</div>
+    <div class="meta"><h3>${esc(it.title)}</h3><p>${esc(it.year)} · <span title="${c[1]}">${c[0]}</span></p>${prog}</div></article>`;
+}
+
+/* ---- Continuaciones ---- */
+function continuations(){
+  $('#app').innerHTML=`
+  <div class="row"><input id="cq" type="search" placeholder="Buscar…" value="${esc(S.ui.cq)}" style="flex:1;min-width:180px">
+  <button data-act="checkAll" title="Consulta TMDB y propone cambios; nunca los aplica solo">🔎 Comprobar con TMDB</button></div>
+  <div class="chips">${['all',...Object.keys(CONT)].map(k=>`<button class="chip ${S.ui.cf===k?'on':''}" data-act="cf" data-v="${k}">${k==='all'?'Todas':CONT[k][0]+' '+CONT[k][1]}</button>`).join('')}</div>
+  <p class="note">TMDB solo sugiere: tú decides si aplicas el cambio. Se muestran series y anime (sin los abandonados).</p>
+  <div id="clist" class="list"></div>`;
+  $('#cq').oninput=debounce(e=>{S.ui.cq=e.target.value;saveUi();drawCont()},120);
+  drawCont();
+}
+function drawCont(){
+  const q=S.ui.cq.trim().toLowerCase();
+  const a=live().filter(i=>TV(i)&&i.status!=='dropped'&&(S.ui.cf==='all'||i.continuation===S.ui.cf)&&(!q||i.title.toLowerCase().includes(q))).sort((x,y)=>x.title.localeCompare(y.title,'es'));
+  const el=$('#clist');if(!el)return;
+  el.innerHTML=a.length?a.map(it=>{
+    const sg=S.sugg[it.id],p=posterOf(it);
+    return `<div class="item"><span class="th">${p?`<img src="${esc(p)}" alt="" loading="lazy" onerror="this.remove()">`:''}</span>
+      <div class="t"><b>${esc(it.title)}</b><small>${esc(it.year)} · ${it.seasons.length} temp. · ${statusLabel(it)}</small>
+      ${sg&&(sg.cont||sg.newSeasons)?`<div class="sugg">💡 ${sg.cont?`Sugerido: ${CONT[sg.cont][0]} ${CONT[sg.cont][1]} (${esc(sg.why)})`:''}${sg.newSeasons?` · ${sg.newSeasons} temporada(s) nueva(s) en TMDB`:''} ${sg.cont?`<button class="ghost" data-act="applySug" data-id="${esc(it.id)}">Aplicar</button>`:''}</div>`:''}</div>
+      <select data-act="setCont" data-id="${esc(it.id)}">${Object.entries(CONT).map(([k,v])=>`<option value="${k}" ${k===it.continuation?'selected':''}>${v[0]} ${v[1]}</option>`).join('')}</select></div>`}).join(''):'<div class="empty">Sin resultados.</div>';
+}
+
+/* ---- Calendario ---- */
+async function fetchEps(it){
+  const d=await tmdb('/tv/'+it.tmdbId),ss=new Set();
+  if(d.next_episode_to_air)ss.add(d.next_episode_to_air.season_number);
+  if(d.last_episode_to_air)ss.add(d.last_episode_to_air.season_number);
+  const eps=[];
+  for(const s of ss){const sd=await tmdb(`/tv/${it.tmdbId}/season/${s}`);(sd.episodes||[]).forEach(e=>{if(e.air_date)eps.push({date:e.air_date,season:s,ep:e.episode_number,name:e.name||''})})}
+  return eps;
+}
+async function calendar(force=false){
+  $('#app').innerHTML=`<div class="row"><h2 style="font-size:16px">Próximos 30 días</h2><div class="sp"></div><button data-act="calRefresh">⟳ Actualizar</button></div><div id="cal"><div class="empty">Cargando calendario…</div></div>`;
+  const el=$('#cal');
+  if(!S.set.tmdb){el.innerHTML='<div class="empty">Configura tu clave de TMDB en ⚙ Ajustes para ver el calendario.</div>';return}
+  const cache=jget(LS.cal,{}),now=Date.now();
+  const cands=live().filter(i=>i.tmdbType==='tv'&&i.tmdbId&&i.status!=='dropped'&&i.status!=='pending'&&(i.continuation==='airing'||i.status==='watching'));
+  const out=[];let fails=0;
+  await pool(cands,4,async it=>{
+    let c=cache[it.id];
+    if(force===true||!c||now-c.t>12*3600e3){try{c={t:now,eps:await fetchEps(it)};cache[it.id]=c}catch(e){fails++;if(!c)return}}
+    c.eps.forEach(e=>out.push({...e,id:it.id,title:it.title}));
+  });
+  jset(LS.cal,cache);
+  if(S.ui.view!=='calendar')return;
+  const t0=new Date();t0.setHours(0,0,0,0);const t1=new Date(t0);t1.setDate(t1.getDate()+30);
+  const a=isoDay(t0),b=isoDay(t1);
+  const days={};
+  out.filter(e=>e.date>=a&&e.date<=b).sort((x,y)=>x.date.localeCompare(y.date)||x.title.localeCompare(y.title)).forEach(e=>(days[e.date]=days[e.date]||[]).push(e));
+  const keys=Object.keys(days),today=isoDay(new Date());
+  el.innerHTML=(fails?`<p class="note">⚠ ${fails} título(s) no se pudieron consultar.</p>`:'')+(keys.length?keys.map(k=>{
+    const d=new Date(k+'T00:00:00');
+    return `<div class="day"><h3>${d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})}${k===today?'<span class="hoy">HOY</span>':''}</h3><div class="list" style="margin-top:0">${days[k].map(e=>{
+      const it=byId(e.id),s=it&&it.seasons.find(x=>(x.tmdbSeason||x.number)===e.season),seen=s&&(+s.epSeen||0)>=e.ep;
+      return `<div class="item" data-act="edit" data-id="${esc(e.id)}" style="cursor:pointer;${seen?'opacity:.5':''}"><div class="t"><b>${esc(e.title)}</b><small>T${e.season} · E${e.ep}${e.name?' — '+esc(e.name):''}</small></div>${seen?'<small>visto</small>':''}</div>`}).join('')}</div></div>`}).join(''):'<div class="empty">No hay episodios previstos en los próximos 30 días.</div>');
+}
+
+/* ---- Recordatorios ---- */
+function reminders(){
+  const a=live().filter(i=>i.reminder&&i.reminder.nextDue).sort((x,y)=>x.reminder.nextDue-y.reminder.nextDue);
+  const perm='Notification' in window?Notification.permission:'denied';
+  $('#app').innerHTML=`<div class="row"><h2 style="font-size:16px">Recordatorios de revisión</h2><div class="sp"></div>
+    ${perm==='default'?'<button data-act="notif">🔔 Activar notificaciones</button>':perm==='granted'?'<span class="note">Notificaciones activadas</span>':'<span class="note">Notificaciones bloqueadas</span>'}</div>
+    <p class="note" style="margin-top:6px">Se crean desde la ficha de cada título (intervalo en meses).</p>
+    <div class="list">${a.length?a.map(it=>{const due=it.reminder.nextDue<=Date.now();
+      return `<div class="item ${due?'due':''}"><div class="t"><b>${esc(it.title)}</b><small>${due?'⏰ Vencido · ':''}Revisar el ${fmtDate(it.reminder.nextDue)} · cada ${it.reminder.interval} mes(es)${it.seasons.map(s=>s.note).filter(Boolean).length?' · '+esc(it.seasons.map(s=>s.note).filter(Boolean).join(' / ')):''}</small></div>
+      <button data-act="remDone" data-id="${esc(it.id)}">✓ Revisado</button><button data-act="edit" data-id="${esc(it.id)}">Abrir</button><button class="dng ghost" data-act="remDel" data-id="${esc(it.id)}">Quitar</button></div>`}).join(''):'<div class="empty">No tienes recordatorios.</div>'}</div>`;
+}
+function notifyDue(){
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  const d=dueList(),day=isoDay(new Date());
+  if(!d.length||localStorage.getItem('medialog.v2.notified')===day)return;
+  localStorage.setItem('medialog.v2.notified',day);
+  new Notification('MediaLog · revisiones pendientes',{body:d.slice(0,5).map(i=>i.title).join(', ')+(d.length>5?'…':'')});
+}
+
+/* ---- Estadísticas ---- */
+function stats(){
+  const a=live();
+  if(!a.length){$('#app').innerHTML='<div class="empty">Aún no hay datos.</div>';return}
+  let min=0,eps=0;
+  a.forEach(i=>{
+    if(TV(i)){const t=epTotals(i);eps+=t.seen;min+=t.seen*MIN_PER_EP[i.type]}
+    else if(i.type==='movie'&&i.status==='completed')min+=MIN_MOVIE;
+  });
+  const rated=a.map(ratingOf).filter(n=>n!=null),avg=rated.length?rated.reduce((x,y)=>x+y,0)/rated.length:0;
+  const gen={};
+  a.forEach(i=>{if(i.type==='manga'&&!i.genre)return;i.genre.split(',').map(g=>g.trim()).filter(Boolean).forEach(g=>{g=GENRE_ES[g]||g;if(g==='Animación')return;gen[g]=(gen[g]||0)+1})});
+  const topG=Object.entries(gen).sort((x,y)=>y[1]-x[1]).slice(0,10),maxG=topG[0]?topG[0][1]:1;
+  const bySt=Object.keys(STATUS).map(s=>[STATUS[s],a.filter(i=>i.status===s).length]);
+  const byT=Object.keys(TYPES).map(t=>[TYPES[t],a.filter(i=>i.type===t).length]);
+  const top=a.filter(i=>ratingOf(i)!=null).sort((x,y)=>ratingOf(y)-ratingOf(x)||x.title.localeCompare(y.title)).slice(0,10);
+  const dist=Array.from({length:10},(_,k)=>[String(k+1),rated.filter(n=>Math.round(n)===k+1).length]);
+  const vols=a.filter(i=>i.type==='manga').reduce((s,i)=>s+i.volsRead,0);
+  const bars=(rows,max)=>rows.map(([l,n])=>`<div class="hb"><span>${esc(l)}</span><div class="pb"><i style="width:${max?n/max*100:0}%"></i></div><em>${n}</em></div>`).join('');
+  $('#app').innerHTML=`
+  <div class="kpis">
+    <div class="kpi"><b>${a.length}</b><span>títulos</span></div>
+    <div class="kpi"><b>${Math.round(min/60).toLocaleString('es-ES')} h</b><span>≈ ${(min/60/24).toFixed(1)} días viendo</span></div>
+    <div class="kpi"><b>${eps.toLocaleString('es-ES')}</b><span>episodios vistos</span></div>
+    <div class="kpi"><b>${avg?avg.toFixed(2):'–'}</b><span>nota media (${rated.length})</span></div>
+    ${vols?`<div class="kpi"><b>${vols}</b><span>tomos leídos</span></div>`:''}
+  </div>
+  <div class="two">
+    <div class="panel"><h3 style="margin-bottom:6px">Por tipo</h3>${bars(byT,Math.max(...byT.map(x=>x[1])))}<h3 style="margin:14px 0 6px">Por estado</h3>${bars(bySt,Math.max(...bySt.map(x=>x[1])))}</div>
+    <div class="panel"><h3 style="margin-bottom:6px">Géneros favoritos</h3>${bars(topG,maxG)}</div>
+    <div class="panel"><h3 style="margin-bottom:6px">Distribución de notas</h3>${bars(dist,Math.max(1,...dist.map(x=>x[1])))}</div>
+    <div class="panel"><h3 style="margin-bottom:6px">Top valoradas</h3>${top.map((i,k)=>`<div class="hb" style="grid-template-columns:22px 1fr 40px"><span>${k+1}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" data-act="edit" data-id="${esc(i.id)}">${esc(i.title)}</span><em>★ ${fmtN(ratingOf(i))}</em></div>`).join('')}</div>
+  </div>
+  <p class="note" style="margin-top:10px">Horas estimadas: ${MIN_PER_EP.anime} min/ep anime, ${MIN_PER_EP.series} min/ep series, ${MIN_MOVIE} min por película completada.</p>`;
+}
+
+/* ============ diálogos ============ */
+const dlg=$('#dlg');
+const openDlg=html=>{dlg.innerHTML=html;if(!dlg.open)dlg.showModal()};
+const closeDlg=()=>dlg.open&&dlg.close();
+dlg.addEventListener('click',e=>{if(e.target===dlg)closeDlg()});
+
+/* ---- Añadir ---- */
+let addType='anime',addStatus='watching',searchSeq=0;
+function openAdd(){
+  openDlg(`<div class="dh"><h2>Añadir título</h2><button class="ghost" data-act="close">✕</button></div>
+  <div class="db">
+    <div class="g3"><div><label>Tipo</label><select id="aT">${Object.entries(TYPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+    <div><label>Estado inicial</label><select id="aS">${Object.entries(STATUS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+    <div><label>&nbsp;</label><button data-act="manual" style="width:100%">Añadir a mano</button></div></div>
+    <div class="row"><input id="aQ" placeholder="Buscar por título…" style="flex:1" autofocus><button class="pri" data-act="doSearch">Buscar</button></div>
+    <div id="aR" class="list" style="margin-top:0"></div>
+  </div>`);
+  $('#aT').value=addType;$('#aS').value=addStatus;
+  $('#aT').onchange=e=>{addType=e.target.value};$('#aS').onchange=e=>{addStatus=e.target.value};
+  $('#aQ').onkeydown=e=>{if(e.key==='Enter')doSearch()};
+}
+async function doSearch(){
+  const q=$('#aQ').value.trim();if(!q)return;
+  const seq=++searchSeq,R=$('#aR');R.innerHTML='<div class="note">Buscando…</div>';
+  try{
+    let res=[];
+    if(addType==='manga')res=await searchManga(q);
+    else{
+      const kinds=addType==='movie'?['movie']:addType==='series'?['tv']:['tv','movie'];
+      for(const k of kinds){
+        const j=await tmdb('/search/'+k,{query:q});
+        res.push(...j.results.slice(0,10).map(r=>({src:'tmdb',kind:k,key:r.id,title:r.title||r.name,year:((r.release_date||r.first_air_date)||'').slice(0,4),poster:r.poster_path?IMG+r.poster_path:''})));
+      }
+    }
+    if(seq!==searchSeq)return;
+    window._res=res;
+    R.innerHTML=res.length?res.map((r,i)=>`<div class="res" data-act="pick" data-i="${i}">${r.poster?`<img src="${esc(r.poster)}" alt="">`:'<span class="th"></span>'}<div><b>${esc(r.title)}</b><br><small>${esc(r.year)} · ${r.src==='tmdb'?(r.kind==='tv'?'Serie':'Película'):r.src==='mangadex'?'MangaDex':'Open Library'}</small></div></div>`).join(''):'<div class="note">Sin resultados.</div>';
+  }catch(e){R.innerHTML=`<div class="note" style="color:var(--err)">${esc(e.message)}</div>`}
+}
+async function pick(i){
+  const r=window._res[i];
+  const dup=live().find(x=>r.src==='tmdb'&&x.tmdbId===String(r.key)&&x.tmdbType===r.kind);
+  if(dup){toast('Ya está en tu biblioteca','');openEditor(dup.id);return}
+  try{
+    let it;
+    if(r.src==='tmdb')it=await buildFromTmdb(r.kind,r.key,addType,addStatus);
+    else it=normItem({id:uid(),type:'manga',year:r.year,genre:r.genre,title:r.title,poster:r.poster,rating:'',status:addStatus,tmdbId:'',mangadexId:r.src==='mangadex'?r.key:'',volsJP:r.volsJP,addedAt:Date.now(),updatedAt:Date.now()});
+    if(it.status==='completed')it.seasons.forEach(s=>{if(s.epTotal)s.epSeen=s.epTotal});
+    commit(it);toast('Añadido: '+it.title,'ok');openEditor(it.id);
+  }catch(e){toast(e.message,'err')}
+}
+function addManual(){
+  const it=normItem({id:uid(),type:addType,title:'Nuevo título',status:addStatus,addedAt:Date.now(),updatedAt:Date.now(),tmdbType:addType==='movie'?'movie':addType==='manga'?undefined:'tv',seasons:TV({type:addType})?[{number:1,tmdbSeason:1,epSeen:0,epTotal:0}]:[]});
+  commit(it);openEditor(it.id);
+}
+
+/* ---- Editor ---- */
+function seasonRow(s,i){
+  return `<div class="srow" data-orig="${i}"><b>T<input class="sNum" type="number" min="0" value="${esc(s.number)}" style="width:44px;display:inline;padding:3px"></b>
+    <input class="sSeen" type="number" min="0" value="${+s.epSeen||0}" title="Vistos"><span class="slash">/</span><input class="sTot" type="number" min="0" value="${+s.epTotal||0}" title="Total">
+    <input class="sr sRate" type="number" min="0" max="10" step="0.5" placeholder="Nota" value="${esc(s.rating)}"><input class="sn sNote" placeholder="Nota / recordatorio" value="${esc(s.note)}">
+    <button class="ghost" data-act="sFull" title="Marcar temporada completa">✔</button><button class="ghost dng" data-act="sDel" title="Quitar temporada">✕</button></div>`;
+}
+let editing=null;
+function openEditor(id){
+  const it=byId(id);if(!it||it.deleted)return;
+  editing=JSON.parse(JSON.stringify(it));
+  const m=it.type==='manga',tv=TV(it);
+  openDlg(`<div class="dh"><h2>${esc(it.title)}</h2><button class="ghost" data-act="close">✕</button></div>
+  <div class="db" id="eb">
+    <div class="g2"><div><label>Título</label><input id="eTitle" value="${esc(it.title)}"></div>
+      <div><label>Tipo</label><select id="eType">${Object.entries(TYPES).map(([k,v])=>`<option value="${k}" ${k===it.type?'selected':''}>${v}</option>`).join('')}</select></div></div>
+    <div class="g3"><div><label>Año</label><input id="eYear" value="${esc(it.year)}"></div>
+      <div><label>Estado</label><select id="eStatus">${Object.entries(STATUS).map(([k,v])=>`<option value="${k}" ${k===it.status?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div><label>Nota global (0-10)</label><input id="eRating" type="number" min="0" max="10" step="0.1" value="${esc(it.rating)}"></div></div>
+    <div class="g2"><div><label>Géneros</label><input id="eGenre" value="${esc(it.genre)}"></div>
+      <div><label>Póster (URL)</label><input id="ePoster" value="${esc(it.poster)}"></div></div>
+    <div class="g2" id="eContW"><div><label>Continuación</label><select id="eCont">${Object.entries(CONT).map(([k,v])=>`<option value="${k}" ${k===it.continuation?'selected':''}>${v[0]} ${v[1]}</option>`).join('')}</select></div>
+      <div><label>Recordatorio de revisión</label><select id="eRem">${[['','Sin recordatorio'],[1,'En 1 mes'],[3,'En 3 meses'],[6,'En 6 meses'],[12,'En 12 meses'],[24,'En 24 meses']].map(([v,l])=>`<option value="${v}" ${it.reminder&&it.reminder.interval==v?'selected':''}>${l}${it.reminder&&it.reminder.interval==v?' (vence '+fmtDate(it.reminder.nextDue)+')':''}</option>`).join('')}</select></div></div>
+    <div id="eSug"></div>
+    <div id="eSeasons" class="${tv?'':'hide'}"><div class="row" style="margin-bottom:6px"><label style="margin:0">Temporadas (vistos / total)</label><div class="sp"></div>
+      <button class="ghost" data-act="sAdd">+ Temporada</button>${it.tmdbId?'<button class="ghost" data-act="sTmdb">⟳ Actualizar desde TMDB</button>':''}</div>
+      <div id="sList" style="display:flex;flex-direction:column;gap:6px">${it.seasons.map(seasonRow).join('')}</div></div>
+    <div id="eManga" class="${m?'':'hide'}"><label>Tomos</label><div class="g3">
+      ${[['volsES','ES publicados'],['volsOwned','ES comprados'],['volsRead','ES leídos'],['volsJP','JP publicados'],['volsJPRead','JP leídos']].map(([k,l])=>`<div><label>${l}</label><input data-vol="${k}" type="number" min="0" value="${+it[k]||0}"></div>`).join('')}
+      <div><label>Editorial</label><input id="ePub" value="${esc(it.publisher||'')}"></div></div></div>
+  </div>
+  <div class="df"><button class="dng" data-act="eDel">Eliminar</button><div class="sp"></div><button data-act="close">Cancelar</button><button class="pri" data-act="eSave">Guardar</button></div>`);
+  $('#eStatus').onchange=e=>{if(e.target.value==='completed')$$('#sList .srow').forEach(r=>{const t=+$('.sTot',r).value;if(t)$('.sSeen',r).value=t})};
+  $('#eType').onchange=e=>{const t=e.target.value;$('#eSeasons').classList.toggle('hide',!(t==='anime'||t==='series'));$('#eManga').classList.toggle('hide',t!=='manga');$('#eContW').classList.toggle('hide',t==='manga')};
+  $('#eContW').classList.toggle('hide',m);
+  const sg=S.sugg[it.id];if(sg)drawEditSug(sg);
+}
+function drawEditSug(sg){
+  const el=$('#eSug');if(!el)return;
+  el.innerHTML=(sg.cont||sg.newSeasons)?`<div class="panel sugg">💡 TMDB sugiere: ${sg.cont?`${CONT[sg.cont][0]} ${CONT[sg.cont][1]} (${esc(sg.why)}) <button data-act="eApplySug">Aplicar</button>`:''}${sg.newSeasons?` ${sg.newSeasons} temporada(s) nueva(s) (usa “Actualizar desde TMDB”)`:''}</div>`:'';
+}
+function readEditor(){
+  const o=editing,it={...o};
+  it.title=$('#eTitle').value.trim()||o.title;
+  it.type=$('#eType').value;
+  it.year=$('#eYear').value.trim();
+  it.status=$('#eStatus').value;
+  it.genre=$('#eGenre').value.trim();
+  it.poster=$('#ePoster').value.trim();
+  const r=num($('#eRating').value);it.rating=r==null?'':r;
+  it.continuation=$('#eCont').value;
+  if(TV(it)){
+    it.seasons=$$('#sList .srow').map(row=>{
+      const oi=+row.dataset.orig,base=oi>=0&&o.seasons[oi]?o.seasons[oi]:{note:'',airDay:'',poster:'',tmdbSeason:null};
+      const n=parseInt($('.sNum',row).value)||1,rt=$('.sRate',row).value;
+      return {...base,number:n,tmdbSeason:base.tmdbSeason||n,epSeen:+$('.sSeen',row).value||0,epTotal:+$('.sTot',row).value||0,rating:rt===''?'':String(rt),note:$('.sNote',row).value.trim()};
+    });
+    if(it.status==='completed')it.seasons.forEach(s=>{if(s.epTotal)s.epSeen=s.epTotal});
+    recalcRating(it);
+    if(!it.tmdbType&&it.tmdbId)it.tmdbType='tv';
+  }else if(it.type==='movie'){it.seasons=[];if(!it.tmdbType&&it.tmdbId)it.tmdbType='movie'}
+  if(it.type==='manga'){
+    $$('[data-vol]').forEach(i=>it[i.dataset.vol]=Math.max(0,parseInt(i.value)||0));
+    it.publisher=$('#ePub').value.trim();it.seasons=[];
+  }
+  const iv=parseInt($('#eRem').value)||0;
+  if(!iv)delete it.reminder;
+  else if(!o.reminder||o.reminder.interval!==iv){const now=Date.now();it.reminder={interval:iv,lastChecked:now,nextDue:addMonths(now,iv)}}
+  return normItem(it);
+}
+
+/* ---- Ajustes ---- */
+function openSettings(){
+  openDlg(`<div class="dh"><h2>Ajustes</h2><button class="ghost" data-act="close">✕</button></div>
+  <div class="db">
+    <div class="panel"><b>Supabase (sincronización)</b>
+      <div class="g2" style="margin-top:8px"><div><label>URL del proyecto</label><input id="sU" placeholder="https://xxxx.supabase.co" value="${esc(S.set.supaUrl)}"></div>
+      <div><label>Tabla</label><input id="sT" value="${esc(S.set.table||'medialog')}"></div></div>
+      <label style="margin-top:8px">Clave anon (public)</label><input id="sK" value="${esc(S.set.supaKey)}">
+      <details style="margin-top:8px"><summary class="note" style="cursor:pointer">SQL para crear la tabla (ejecútalo en el SQL Editor de Supabase)</summary>
+<pre>create table if not exists medialog (
+  id text primary key,
+  data jsonb not null,
+  updated_at bigint not null
+);
+alter table medialog enable row level security;
+create policy "medialog_all" on medialog
+  for all using (true) with check (true);</pre>
+      <p class="note">Esa política deja leer/escribir a cualquiera que tenga la clave anon (que está en el HTML público). Para uso personal basta; si quieres más seguridad, añade Supabase Auth.</p></details>
+      <div class="row" style="margin-top:8px"><button data-act="syncNow">⟳ Sincronizar ahora</button><span class="note">${S.pend.size} cambios pendientes</span></div></div>
+    <div class="panel"><b>TMDB</b><label style="margin-top:8px">API key (v3) o Read Access Token (v4)</label><input id="sM" value="${esc(S.set.tmdb)}"></div>
+    <div class="panel"><b>Datos</b><div class="row" style="margin-top:8px"><button data-act="export">⬇ Exportar JSON</button><button data-act="import">⬆ Importar JSON</button><button data-act="dedupe">Limpiar duplicados</button></div>
+      <p class="note" style="margin-top:6px">Importar fusiona por fecha de modificación (gana lo más reciente) y no borra nada.</p></div>
+  </div>
+  <div class="df"><button data-act="close">Cerrar</button><button class="pri" data-act="sSave">Guardar ajustes</button></div>`);
+}
+
+/* ============ acciones ============ */
+const ACT={
+  nav(t){S.ui.view=t.dataset.v;saveUi();render()},
+  type(t){S.ui.type=t.dataset.v;saveUi();library()},
+  status(t){S.ui.status=t.dataset.v;saveUi();library()},
+  cf(t){S.ui.cf=t.dataset.v;saveUi();continuations()},
+  add:openAdd,settings:openSettings,close:closeDlg,
+  doSearch,manual(){addManual()},pick(t){pick(+t.dataset.i)},
+  edit(t){openEditor(t.dataset.id)},
+  plus(t){
+    const it=byId(t.dataset.id);if(!it)return;const c={...it,seasons:it.seasons.map(s=>({...s}))};
+    const s=curSeason(c);if(!s)return;s.epSeen=(+s.epSeen||0)+1;if(s.epTotal&&s.epSeen>s.epTotal)s.epTotal=s.epSeen;
+    commit(c);toast(`${c.title}: T${s.number} ${s.epSeen}/${s.epTotal||'?'}`);
+  },
+  sAdd(){
+    const rows=$$('#sList .srow'),n=Math.max(0,...rows.map(r=>+$('.sNum',r).value||0))+1;
+    $('#sList').insertAdjacentHTML('beforeend',seasonRow({number:n,epSeen:0,epTotal:0,rating:'',note:''},-1));
+  },
+  sDel(t){t.closest('.srow').remove()},
+  sFull(t){const r=t.closest('.srow'),tot=+$('.sTot',r).value;if(tot)$('.sSeen',r).value=tot},
+  async sTmdb(t){
+    t.disabled=true;
+    try{
+      const tmp=readEditor();editing=JSON.parse(JSON.stringify(tmp));
+      const {ch,sug}=await refreshSeasons(tmp);S.sugg[tmp.id]=sug;
+      Object.assign(editing,tmp);
+      $('#sList').innerHTML=tmp.seasons.map(seasonRow).join('');
+      editing=JSON.parse(JSON.stringify(tmp));
+      toast(ch?`${ch} cambio(s) desde TMDB (sin tocar tus episodios vistos)`:'Sin cambios en TMDB','ok');drawEditSug(sug);
+    }catch(e){toast(e.message,'err')}
+    t.disabled=false;
+  },
+  eApplySug(){const sg=S.sugg[editing.id];if(sg&&sg.cont){$('#eCont').value=sg.cont;sg.cont=null;drawEditSug(sg)}},
+  eSave(){
+    const it=readEditor();
+    if(!it.title.trim()){toast('Falta el título','err');return}
+    commit(it);closeDlg();toast('Guardado','ok');
+  },
+  eDel(){if(confirm(`¿Eliminar “${editing.title}”?`)){remove(editing.id);closeDlg()}},
+  setCont(t){const it=byId(t.dataset.id);if(it){commit({...it,continuation:t.value},{silent:true});if(S.sugg[it.id]){const sg=S.sugg[it.id];if(sg.cont===t.value)sg.cont=null}drawCont()}},
+  applySug(t){const it=byId(t.dataset.id),sg=S.sugg[t.dataset.id];if(it&&sg&&sg.cont){commit({...it,continuation:sg.cont},{silent:true});sg.cont=null;drawCont()}},
+  async checkAll(t){
+    if(!S.set.tmdb){toast('Configura TMDB en Ajustes','err');return}
+    const c=live().filter(i=>i.tmdbType==='tv'&&i.tmdbId&&i.status!=='dropped'&&i.continuation!=='no'||(i.tmdbType==='tv'&&i.tmdbId&&i.status!=='dropped'&&i.continuation==='no'));
+    t.disabled=true;let n=0;
+    await pool(c,4,async it=>{const d=await tmdb('/tv/'+it.tmdbId);S.sugg[it.id]=suggestFromTmdb(d,it);t.textContent=`🔎 ${++n}/${c.length}`});
+    t.disabled=false;t.textContent='🔎 Comprobar con TMDB';
+    const k=Object.values(S.sugg).filter(s=>s.cont||s.newSeasons).length;
+    toast(`${k} sugerencia(s) encontradas`,'ok');drawCont();
+  },
+  calRefresh(){calendar(true)},
+  remDone(t){const it=byId(t.dataset.id);if(!it||!it.reminder)return;const now=Date.now();commit({...it,reminder:{...it.reminder,lastChecked:now,nextDue:addMonths(now,it.reminder.interval)}})},
+  remDel(t){const it=byId(t.dataset.id);if(!it)return;const c={...it};delete c.reminder;commit(c)},
+  async notif(){await Notification.requestPermission();render();notifyDue()},
+  sSave(){
+    S.set.supaUrl=$('#sU').value.trim();S.set.supaKey=$('#sK').value.trim();S.set.table=$('#sT').value.trim()||'medialog';S.set.tmdb=$('#sM').value.trim();
+    jset(LS.set,S.set);toast('Ajustes guardados','ok');closeDlg();drawSync();render();if(sb.ok())syncNow();
+  },
+  syncNow(){ACT.sSave();},
+  export(){
+    const blob=new Blob([JSON.stringify(live(),null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`medialog_${isoDay(new Date())}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  },
+  import(){$('#fileIn').click()},
+  dedupe(){const n=dedupe();persist();render();scheduleSync(500);toast(n?`${n} duplicado(s) eliminados`:'No hay duplicados',n?'ok':'')}
+};
+document.addEventListener('click',e=>{const t=e.target.closest('[data-act]');if(!t||t.tagName==='SELECT')return;const f=ACT[t.dataset.act];if(f){e.preventDefault();f(t,e)}});
+document.addEventListener('change',e=>{const t=e.target;if(t.tagName==='SELECT'&&t.dataset.act&&ACT[t.dataset.act])ACT[t.dataset.act](t,e)});
+
+$('#fileIn').addEventListener('change',async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{
+    let j=JSON.parse(await f.text());if(!Array.isArray(j))j=j.items||j.data||[];
+    if(!Array.isArray(j))throw new Error('Formato no reconocido');
+    const loc=new Map(S.items.map(i=>[i.id,i]));let add=0,upd=0;
+    j.forEach(r=>{
+      if(!r||typeof r!=='object')return;
+      const n=normItem(r),l=loc.get(n.id);
+      if(!l){S.items.push(n);loc.set(n.id,n);add++;S.pend.add(n.id)}
+      else if(n.updatedAt>l.updatedAt){S.items[S.items.indexOf(l)]=n;loc.set(n.id,n);upd++;S.pend.add(n.id)}
+    });
+    const dd=dedupe();persist();closeDlg();render();scheduleSync(500);
+    toast(`Importado: ${add} nuevos, ${upd} actualizados${dd?`, ${dd} duplicados limpiados`:''}`,'ok');
+  }catch(err){toast('No se pudo importar: '+err.message,'err')}
+});
+$('#sync').title='Estado de sincronización';
+window.addEventListener('online',()=>{drawSync();syncNow()});
+window.addEventListener('offline',drawSync);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&sb.ok())syncNow()});
+window.addEventListener('error',e=>toast('Error: '+e.message,'err'));
+window.addEventListener('unhandledrejection',e=>toast('Error: '+(e.reason&&e.reason.message||e.reason),'err'));
+
+/* ============ arranque ============ */
+S.items=jget(LS.items,[]).map(normItem);
+render();
+notifyDue();
+if(sb.ok())syncNow();
+</script>
+</body>
+</html>
